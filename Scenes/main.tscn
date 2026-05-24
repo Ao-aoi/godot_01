@@ -1,0 +1,45 @@
+[gd_scene format=3 uid="uid://b8cio4ffwues5"]
+
+[ext_resource type="Script" uid="uid://b0wprhxd2tssj" path="res://Scripts/Main.cs" id="1_ig7tw"]
+[ext_resource type="PackedScene" uid="uid://bimxpsy541kuc" path="res://Scenes/creature.tscn" id="2_0xm2m"]
+[ext_resource type="PackedScene" uid="uid://clcbqev40b6cq" path="res://Scenes/island.tscn" id="3_8gbba"]
+[ext_resource type="Script" uid="uid://cts120m436sm0" path="res://Scripts/CameraController.cs" id="4_jjvhh"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_7dm0k"]
+size = Vector3(5.5, 0.25, 0.45694578)
+
+[sub_resource type="BoxMesh" id="BoxMesh_7dm0k"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_jjvhh"]
+radius = 0.2
+
+[node name="Main" type="Node3D" unique_id=1891226981]
+script = ExtResource("1_ig7tw")
+CreatureScene = ExtResource("2_0xm2m")
+
+[node name="Island" parent="." unique_id=656580486 instance=ExtResource("3_8gbba")]
+
+[node name="Bridge" type="StaticBody3D" parent="." unique_id=1685853487]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16.30367, 1.5428047, 2.0422168)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Bridge" unique_id=183963132]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1434846, -0.008868456)
+shape = SubResource("BoxShape3D_7dm0k")
+debug_color = Color(0.120494686, 0.59900457, 0.6803878, 0.41960785)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Bridge" unique_id=1289886828]
+transform = Transform3D(-5.5000005, 0, -7.008738e-08, 0, 0.257, 0, 8.30477e-07, 0, -0.46416777, 0, 1.136363, 0)
+mesh = SubResource("BoxMesh_7dm0k")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=17794788]
+transform = Transform3D(1, 0, 0, 0, 0.65287876, 0.75746244, 0, -0.75746244, 0.65287876, 0, 10.346172, 0)
+
+[node name="Player" type="CharacterBody3D" parent="." unique_id=509048546]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.9073486e-06, 7.100535, -13.408382)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player" unique_id=693526202]
+shape = SubResource("SphereShape3D_jjvhh")
+
+[node name="Camera3D" type="Camera3D" parent="Player" unique_id=533898066]
+fov = 50.0
+script = ExtResource("4_jjvhh")
