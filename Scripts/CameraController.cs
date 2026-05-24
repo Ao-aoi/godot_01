@@ -27,6 +27,30 @@ public partial class CameraController : Camera3D
 
 	private CharacterBody3D _parentBody;
 
+	// フォロー機能（フェーズ2）
+	private Node3D _followTarget = null;
+	public float FollowSpeed = 6.0f;
+	public float FollowDistance = 2.8f;
+	public float FollowHeight = 1.6f;
+	private bool _isFollowing = false;
+
+	public void StartFollow(Node3D target)
+	{
+		_followTarget = target;
+		_isFollowing = (_followTarget != null);
+		// カーソル操作を一旦許可しておく（注視中のカメラ制御は自動化）
+		Input.MouseMode = Input.MouseModeEnum.Visible;
+		GD.Print($"Camera: StartFollow {target?.Name}");
+	}
+
+	public void StopFollow()
+	{
+		_followTarget = null;
+		_isFollowing = false;
+		Input.MouseMode = Input.MouseModeEnum.Captured;
+		GD.Print("Camera: StopFollow");
+	}
+
 	public override void _Ready()
 	{
 		Input.MouseMode = Input.MouseModeEnum.Captured;
@@ -84,6 +108,21 @@ public partial class CameraController : Camera3D
 
 	public override void _PhysicsProcess(double delta)
 	{
+		if (_isFollowing && _followTarget != null)
+		{
+			// 目標位置: 対象の上方＋後方オフセット
+			Vector3 targetPos = _followTarget.GlobalPosition + Vector3.Up * FollowHeight;
+			// カメラの位置は対象から後方に離れる
+			Vector3 dirToCamera = (GlobalPosition - _followTarget.GlobalPosition).Normalized();
+			if (dirToCamera.Length() == 0) dirToCamera = new Vector3(0, 0, -1);
+			Vector3 desiredPos = _followTarget.GlobalPosition + Vector3.Up * FollowHeight + dirToCamera * FollowDistance;
+			// スムーズに補間
+			GlobalPosition = GlobalPosition.Lerp(desiredPos, Mathf.Min(1.0f, FollowSpeed * (float)delta));
+			// 常に対象を注視
+			LookAt(_followTarget.GlobalPosition + Vector3.Up * 0.4f, Vector3.Up);
+			return;
+		}
+
 		if (Input.MouseMode != Input.MouseModeEnum.Captured || _parentBody == null) return;
 
 		float fDelta = (float)delta;
