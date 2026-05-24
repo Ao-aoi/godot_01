@@ -3,6 +3,7 @@
 [ext_resource type="Script" uid="uid://b0wprhxd2tssj" path="res://Scripts/Main.cs" id="1_ig7tw"]
 [ext_resource type="PackedScene" uid="uid://bimxpsy541kuc" path="res://Scenes/creature.tscn" id="2_0xm2m"]
 [ext_resource type="PackedScene" uid="uid://clcbqev40b6cq" path="res://Scenes/island.tscn" id="3_8gbba"]
+[ext_resource type="PackedScene" path="res://Scenes/Food.tscn" id="4_food1"]
 [ext_resource type="Script" uid="uid://cts120m436sm0" path="res://Scripts/CameraController.cs" id="4_jjvhh"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_7dm0k"]
@@ -16,6 +17,7 @@ radius = 0.2
 [node name="Main" type="Node3D" unique_id=1891226981]
 script = ExtResource("1_ig7tw")
 CreatureScene = ExtResource("2_0xm2m")
+FoodScene = ExtResource("4_food1")
 
 [node name="Island" parent="." unique_id=656580486 instance=ExtResource("3_8gbba")]
 

@@ -49,7 +49,7 @@ public partial class CameraController : Camera3D
 		}
 
 		// マウスによる視点移動
-		if (Input.MouseMode == Input.MouseModeEnum.Captured && @event is InputEventMouseMotion mouseMotion)
+		if (Input.MouseMode == Input.MouseModeEnum.Captured && @event is InputEventMouseMotion mouseMotion && !Input.IsMouseButtonPressed(MouseButton.Left))
 		{
 			_rotY -= mouseMotion.Relative.X * MouseSensitivity;
 			_rotX -= mouseMotion.Relative.Y * MouseSensitivity;
