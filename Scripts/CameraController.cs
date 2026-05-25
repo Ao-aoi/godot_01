@@ -198,6 +198,19 @@ public partial class CameraController : Camera3D
 		_currentVelocity = Vector3.Zero;
 		SetHighlightTarget(target);
 	}
+	
+	/// <param name="target">注目する3Dオブジェクト</param>
+	public void StartFollow(Node3D target)
+	{
+		if (target == null || !IsInstanceValid(target))
+		{
+			return;
+		}
+
+		// 既存のズームイン処理（ZoomInToCreature）を活用して追跡を開始
+		ZoomInToCreature(target);
+		GD.Print($"CameraController: オブジェクト '{target.Name}' の追跡を開始しました。");
+	}
 
 	public void ZoomOut()
 	{
@@ -263,7 +276,10 @@ public partial class CameraController : Camera3D
 		PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(from, to);
 		query.CollideWithAreas = true;
 		query.CollideWithBodies = true;
-		query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
+		if (_parentBody != null)
+		{
+			query.Exclude = new Godot.Collections.Array<Rid> { _parentBody.GetRid() };
+		}
 
 		var spaceState = GetWorld3D().DirectSpaceState;
 		var hit = spaceState.IntersectRay(query);
