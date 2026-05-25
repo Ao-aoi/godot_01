@@ -41,6 +41,7 @@ public partial class Main : Node3D
 		public int GenerationIndex = 1;
 		public float Fitness = 0.0f;
 		public int FoodsEaten = 0;
+		public string DeathCause = string.Empty;
 		public CreatureGenome Genome = CreatureGenome.Randomize();
 		public CreatureAgent Agent = null;
 	}
@@ -95,7 +96,7 @@ public partial class Main : Node3D
 			if (creature.GlobalPosition.Y < AbyssY)
 			{
 				// 事故死: プレイヤー殺害扱いにしない
-				HandleCreatureDeath(creature, false);
+				HandleCreatureDeath(creature, false, "落下死");
 				UpdateCreatureUI();
 			}
 		}
@@ -201,6 +202,7 @@ public partial class Main : Node3D
 
 	// ---- フェーズ2: 簡易UIの生成と更新 ----
 	private CanvasLayer _uiLayer;
+	private Label _generationLabel;
 	private VBoxContainer _aliveList;
 	private VBoxContainer _deadList;
 	private readonly System.Collections.Generic.Dictionary<RigidBody3D, Button> _creatureButtons = new();
@@ -217,6 +219,9 @@ public partial class Main : Node3D
 		VBoxContainer root = new VBoxContainer();
 		// layout settings can be adjusted in editor if needed
 		panel.AddChild(root);
+
+		_generationLabel = new Label();
+		root.AddChild(_generationLabel);
 
 		Label aliveLabel = new Label();
 		aliveLabel.Text = "生存中";
@@ -241,6 +246,10 @@ public partial class Main : Node3D
 		ClearContainerChildren(_aliveList);
 		ClearContainerChildren(_deadList);
 		_creatureButtons.Clear();
+		if (_generationLabel != null)
+		{
+			_generationLabel.Text = $"現在の世代: {_generation}";
+		}
 
 		// 生存中リスト
 		foreach (var kv in _creatureMeta)
@@ -248,7 +257,12 @@ public partial class Main : Node3D
 			RigidBody3D c = kv.Key;
 			CreatureMeta meta = kv.Value;
 			string label = (meta.Alive ? "生存: " : "死亡: ") + meta.DisplayName;
+			label += $"  世代:{meta.GenerationIndex}";
 			label += $"  F:{meta.Fitness:0.0}  食:{meta.FoodsEaten}";
+			if (!meta.Alive && !string.IsNullOrEmpty(meta.DeathCause))
+			{
+				label += $"  死因:{meta.DeathCause}";
+			}
 			if (meta.Traits.Count > 0)
 			{
 				label += " [" + string.Join(",", meta.Traits) + "]";
@@ -714,6 +728,7 @@ public partial class Main : Node3D
 		meta.Traits = new List<string>(traits);
 		meta.Genome = genome.Clone();
 		meta.DisplayName = GenerateCreatureName(meta.Traits);
+		meta.DeathCause = string.Empty;
 		_creatureMeta[creatureInstance] = meta;
 		creatureInstance.Name = meta.DisplayName;
 		creatureInstance.AddToGroup("creatures");
@@ -734,7 +749,7 @@ public partial class Main : Node3D
 		UpdateCreatureUI();
 	}
 
-	private void HandleCreatureDeath(RigidBody3D creature, bool killedByPlayer)
+	private void HandleCreatureDeath(RigidBody3D creature, bool killedByPlayer, string overrideCause = null)
 	{
 		if (creature == null || !IsInstanceValid(creature))
 		{
@@ -746,6 +761,22 @@ public partial class Main : Node3D
 		if (_creatureMeta.TryGetValue(creature, out CreatureMeta meta))
 		{
 			meta.Alive = false;
+			if (!string.IsNullOrEmpty(overrideCause))
+			{
+				meta.DeathCause = overrideCause;
+			}
+			else if (creature is CreatureAgent agent)
+			{
+				meta.DeathCause = agent.DeathCauseLabel;
+			}
+			else if (killedByPlayer)
+			{
+				meta.DeathCause = "手動";
+			}
+			else if (string.IsNullOrEmpty(meta.DeathCause))
+			{
+				meta.DeathCause = "死亡";
+			}
 			if (meta.Agent != null)
 			{
 				meta.Fitness = meta.Agent.Fitness;

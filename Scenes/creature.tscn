@@ -12,7 +12,7 @@ contact_monitor = true
 max_contacts_reported = 8
 script = ExtResource("1")
 MoveForce = 3.0
-TurnTorque = 4.0
+TurnTorque = 1.0
 JumpImpulse = 1.0
 GroundProbeDistance = 0.3
 

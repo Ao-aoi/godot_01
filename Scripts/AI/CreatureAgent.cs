@@ -3,6 +3,13 @@ using System.Collections.Generic;
 
 public partial class CreatureAgent : RigidBody3D
 {
+	private enum DeathCause
+	{
+		None,
+		Starvation,
+		FallDamage,
+	}
+
 	[Signal] public delegate void DiedEventHandler(CreatureAgent creature);
 
 	[Export] public string FoodGroupName = "food";
@@ -30,6 +37,7 @@ public partial class CreatureAgent : RigidBody3D
 	public int FoodsEaten => _foodsEaten;
 	public float Health => _health;
 	public bool IsDead => _isDead;
+	public string DeathCauseLabel => _deathCauseLabel;
 
 	private CreatureGenome _genome = CreatureGenome.Randomize();
 	private CreatureBrain _brain;
@@ -45,6 +53,8 @@ public partial class CreatureAgent : RigidBody3D
 	private bool _wasGrounded;
 	private float _peakFallSpeed;
 	private float _timeSinceLastMeal;
+	private DeathCause _deathCause = DeathCause.None;
+	private string _deathCauseLabel = "不明";
 	private SubViewport _healthViewport;
 	private ColorRect _healthFill;
 
@@ -308,7 +318,7 @@ public partial class CreatureAgent : RigidBody3D
 			return;
 		}
 
-		ApplyDamage(StarvationDamagePerSecond * delta);
+		ApplyDamage(StarvationDamagePerSecond * delta, DeathCause.Starvation);
 	}
 
 	private void HandleFallDamage(bool wasGrounded)
@@ -323,7 +333,7 @@ public partial class CreatureAgent : RigidBody3D
 		else if (!wasGrounded && _peakFallSpeed > FallDamageSafeSpeed)
 		{
 			float damage = (_peakFallSpeed - FallDamageSafeSpeed) * FallDamagePerSpeed;
-			ApplyDamage(damage);
+			ApplyDamage(damage, DeathCause.FallDamage);
 			_peakFallSpeed = 0.0f;
 		}
 		else if (groundedNow)
@@ -334,17 +344,27 @@ public partial class CreatureAgent : RigidBody3D
 		_wasGrounded = groundedNow;
 	}
 
-	private void ApplyDamage(float amount)
+	private void ApplyDamage(float amount, DeathCause cause = DeathCause.None)
 	{
 		if (_isDead || amount <= 0.0f)
 		{
 			return;
 		}
 
+		if (cause != DeathCause.None)
+		{
+			_deathCause = cause;
+			_deathCauseLabel = cause == DeathCause.Starvation ? "餓死" : "落下死";
+		}
+
 		CreateDamagePopup(Mathf.Max(1, Mathf.RoundToInt(amount)));
 		_health = Mathf.Max(0.0f, _health - amount);
 		if (_health <= 0.0f)
 		{
+			if (_deathCause == DeathCause.None)
+			{
+				_deathCauseLabel = "死亡";
+			}
 			Die();
 		}
 	}
