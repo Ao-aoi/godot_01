@@ -110,14 +110,20 @@ public partial class Main : Node3D
 	{
 		if (@event.IsActionPressed("ui_accept"))
 		{
+			// `ui_accept` のうちスペースキーによる発火を無視して、物理的な Enter のみ受け付ける
+			if (@event is InputEventKey keyEvent)
+			{
+				// physical_keycode が Space の場合は無視する
+				if (keyEvent.PhysicalKeycode == Key.Space)
+				{
+					return;
+				}
+			}
 			GD.Print("Enter: 現世代に個体を追加");
 			SpawnCreature(CreatureGenome.Randomize(), CreateTraitsForNextCreature());
 		}
 
-		if (@event.IsActionPressed("ui_select"))
-		{
-			ForceCullCurrentGeneration();
-		}
+		// 世代強制終了（以前はスペースキーに割り当て）を入力ハンドラから除去しました。
 
 		if (@event is InputEventMouseButton mouseButton && mouseButton.ButtonIndex == MouseButton.Left)
 		{
@@ -615,7 +621,7 @@ public partial class Main : Node3D
 			return;
 		}
 
-		GD.Print("Space: 強制世代終了（手動殺害）");
+		GD.Print("強制世代終了（手動殺害）");
 		for (int i = _aliveCreatures.Count - 1; i >= 0; i--)
 		{
 			RigidBody3D creature = _aliveCreatures[i];

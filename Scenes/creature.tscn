@@ -11,9 +11,15 @@ can_sleep = false
 contact_monitor = true
 max_contacts_reported = 8
 script = ExtResource("1")
+MoveForce = 3.0
+TurnTorque = 4.0
+JumpImpulse = 1.0
+GroundProbeDistance = 0.3
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=529152936]
+transform = Transform3D(0.25, 0, 0, 0, 0.25, 0, 0, 0, 0.25, 0, 0, 0)
 shape = SubResource("CapsuleShape3D_uxuua")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=77743006]
+transform = Transform3D(0.25, 0, 0, 0, 0.25, 0, 0, 0, 0.25, 0, 0, 0)
 mesh = SubResource("CapsuleMesh_fd6ru")

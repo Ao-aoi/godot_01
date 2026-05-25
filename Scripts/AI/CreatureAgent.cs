@@ -45,7 +45,6 @@ public partial class CreatureAgent : RigidBody3D
 	private bool _wasGrounded;
 	private float _peakFallSpeed;
 	private float _timeSinceLastMeal;
-	private float _damagePopupAccumulator;
 	private SubViewport _healthViewport;
 	private ColorRect _healthFill;
 
@@ -58,7 +57,6 @@ public partial class CreatureAgent : RigidBody3D
 		AngularDamp = 0.45f;
 		_health = MaxHealth;
 		_timeSinceLastMeal = 0.0f;
-		_damagePopupAccumulator = 0.0f;
 		SetupHealthBar();
 		UpdateHealthBar();
 	}
@@ -294,8 +292,9 @@ public partial class CreatureAgent : RigidBody3D
 		{
 			return;
 		}
-
+		// ログ出力を追加して、食べられたことを確認できるようにする
 		_foodsEaten++;
+		GD.Print($"{Name} がエサを食べた: {food.GlobalPosition}");
 		_fitness += FoodReward;
 		_timeSinceLastMeal = 0.0f;
 		food.QueueFree();
@@ -342,49 +341,33 @@ public partial class CreatureAgent : RigidBody3D
 			return;
 		}
 
-			_damagePopupAccumulator += amount;
-			EmitDamagePopup(false);
+		CreateDamagePopup(Mathf.Max(1, Mathf.RoundToInt(amount)));
 		_health = Mathf.Max(0.0f, _health - amount);
 		if (_health <= 0.0f)
 		{
-				EmitDamagePopup(true);
 			Die();
 		}
 	}
 
-		private void EmitDamagePopup(bool force)
-		{
-			int popupAmount = Mathf.FloorToInt(_damagePopupAccumulator);
-			if (force && popupAmount <= 0 && _damagePopupAccumulator > 0.0f)
-			{
-				popupAmount = Mathf.Max(1, Mathf.RoundToInt(_damagePopupAccumulator));
-			}
+	private void CreateDamagePopup(int amount)
+	{
+		Label3D damageLabel = new Label3D();
+		damageLabel.Text = $"-{amount}";
+		damageLabel.Modulate = new Color(1.0f, 0.18f, 0.18f, 1.0f);
+		damageLabel.Position = new Vector3(0.0f, HealthBarHeight + 0.9f, 0.0f);
+		damageLabel.Scale = Vector3.One * 0.35f;
+		damageLabel.FontSize = 28;
+		damageLabel.Set("billboard", 1);
+		damageLabel.Set("fixed_size", true);
+		damageLabel.Set("no_depth_test", true);
+		AddChild(damageLabel);
 
-			if (popupAmount <= 0)
-			{
-				return;
-			}
-
-			_damagePopupAccumulator -= popupAmount;
-			CreateDamagePopup(popupAmount);
-		}
-
-		private void CreateDamagePopup(int amount)
-		{
-			Label3D damageLabel = new Label3D();
-			damageLabel.Text = $"-{amount}";
-			damageLabel.Modulate = new Color(1.0f, 0.22f, 0.22f, 1.0f);
-			damageLabel.Position = new Vector3(0.0f, HealthBarHeight + 0.55f, 0.0f);
-			damageLabel.Scale = Vector3.One * 0.22f;
-			damageLabel.Set("billboard", 1);
-			AddChild(damageLabel);
-
-			Tween tween = CreateTween();
-			tween.SetParallel(true);
-			tween.TweenProperty(damageLabel, "position", damageLabel.Position + new Vector3(0.0f, 0.55f, 0.0f), 0.45f);
-			tween.TweenProperty(damageLabel, "modulate:a", 0.0f, 0.45f);
-			tween.TweenCallback(Callable.From(damageLabel.QueueFree));
-		}
+		Tween tween = CreateTween();
+		tween.SetParallel(true);
+		tween.TweenProperty(damageLabel, "position", damageLabel.Position + new Vector3(0.0f, 0.35f, 0.0f), 0.35f);
+		tween.TweenProperty(damageLabel, "modulate:a", 0.0f, 0.35f);
+		tween.TweenCallback(Callable.From(damageLabel.QueueFree));
+	}
 
 	private void Die()
 	{
