@@ -47,3 +47,7 @@ shape = SubResource("SphereShape3D_jjvhh")
 [node name="Camera3D" type="Camera3D" parent="Player" unique_id=533898066]
 fov = 50.0
 script = ExtResource("4_jjvhh")
+FollowOffsetLocal = Vector3(0, 8, 5)
+FollowPositionLerpSpeed = 0.5
+FollowRotationLerpSpeed = 1.0
+MinFollowDistance = 1.0

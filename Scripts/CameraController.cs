@@ -25,6 +25,9 @@ public partial class CameraController : Camera3D
 	[Export] public Vector3 FollowOffsetLocal = new(0.0f, 1.5f, 2.0f);
 	[Export] public float FollowPositionLerpSpeed = 6.0f;
 	[Export] public float FollowRotationLerpSpeed = 8.0f;
+	[Export] public float MinFollowDistance = 0.5f;
+	[Export] public float MaxFollowDistance = 10.0f;
+	[Export] public float FollowDistanceStep = 0.5f;
 
 	private bool _isFlying = true;
 	private bool _isTracking = false;
@@ -71,6 +74,19 @@ public partial class CameraController : Camera3D
 			{
 				ZoomOut();
 			}
+
+			// マウスホイールで注目中のカメラをズームイン/ズームアウト
+			if (_isTracking)
+			{
+				if (mouseButton.ButtonIndex == MouseButton.WheelUp)
+				{
+					AdjustFollowDistance(-FollowDistanceStep);
+				}
+				else if (mouseButton.ButtonIndex == MouseButton.WheelDown)
+				{
+					AdjustFollowDistance(FollowDistanceStep);
+				}
+			}
 		}
 
 		if (Input.MouseMode == Input.MouseModeEnum.Captured && !_isTracking && @event is InputEventMouseMotion mouseMotion)
@@ -109,11 +125,13 @@ public partial class CameraController : Camera3D
 
 	public override void _PhysicsProcess(double delta)
 	{
-		if (Input.MouseMode != Input.MouseModeEnum.Captured || _parentBody == null)
+		// 【修正】MouseModeのチェックを外し、プレイヤーの体が存在するかどうかだけをチェックする
+		if (_parentBody == null)
 		{
 			return;
 		}
 
+		// 追跡カメラ作動中は移動させない（必要であれば）
 		if (_isTracking)
 		{
 			UpdateTrackingCamera((float)delta);
@@ -130,6 +148,7 @@ public partial class CameraController : Camera3D
 		right.Y = 0;
 		if (right.Length() > 0) right = right.Normalized();
 
+		// これにより、ショップ画面が開いていてもWASDの入力を受け付けるようになります
 		if (Input.IsActionPressed("move_forward")) horizontalTargetDir += forward;
 		if (Input.IsActionPressed("move_backward")) horizontalTargetDir -= forward;
 		if (Input.IsActionPressed("move_left")) horizontalTargetDir -= right;
@@ -221,6 +240,21 @@ public partial class CameraController : Camera3D
 		Input.MouseMode = Input.MouseModeEnum.Captured;
 	}
 
+	private void AdjustFollowDistance(float delta)
+	{
+		float currentDist = FollowOffsetLocal.Length();
+		float newDist = Mathf.Clamp(currentDist + delta, MinFollowDistance, MaxFollowDistance);
+		if (Mathf.Abs(newDist - currentDist) < 0.0001f) return;
+		if (currentDist > 0.0001f)
+		{
+			FollowOffsetLocal = FollowOffsetLocal.Normalized() * newDist;
+		}
+		else
+		{
+			FollowOffsetLocal = new Vector3(0.0f, FollowOffsetLocal.Y, newDist);
+		}
+	}
+
 	private void TryZoomInFromCrosshair()
 	{
 		Node3D target = GetCreatureUnderCrosshair();
@@ -238,26 +272,77 @@ public partial class CameraController : Camera3D
 			return;
 		}
 
-		Vector3 desiredPosition = _trackingTarget.GlobalPosition
-			+ (_trackingTarget.GlobalTransform.Basis * FollowOffsetLocal);
+		Vector3 worldOffset = new Vector3(
+			FollowOffsetLocal.X, 
+			FollowOffsetLocal.Y, 
+			FollowOffsetLocal.Z
+		);
 
+		// もし「常にクリーチャーの初期の背後に回り込ませたい」場合は、
+		// クリーチャーの「現在の位置」から、転がりを無視した「Y軸回転（方位）だけ」を抽出してオフセットを計算します。
+		Vector3 targetForward = -_trackingTarget.GlobalTransform.Basis.Z;
+		targetForward.Y = 0.0f; // 垂直方向の傾きを捨てる
+		if (targetForward.Length() < 0.001f)
+		{
+			targetForward = Vector3.Forward; // 真下や真上を向いていた時のセーフティ
+		}
+		targetForward = targetForward.Normalized();
+		
+		// Y軸回転だけのBasisを即席で作る
+		Basis flatBasis = Basis.LookingAt(targetForward, Vector3.Up);
+		Vector3 desiredPosition = _trackingTarget.GlobalPosition + (flatBasis * FollowOffsetLocal);
+
+		// 2. レイキャストによる地面・障害物のめり込みチェック (既存のロジックを維持)
+		if (IsInsideTree() && GetWorld3D() != null)
+		{
+			Vector3 rayOrigin = _trackingTarget.GlobalPosition + Vector3.Up * 0.3f; // 注視点を少し下げるか調整
+			Vector3 rayTarget = desiredPosition;
+
+			PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(rayOrigin, rayTarget);
+			query.CollideWithAreas = false;
+			query.CollideWithBodies = true;
+			
+			var excludeArray = new Godot.Collections.Array<Rid>();
+			if (_parentBody != null) excludeArray.Add(_parentBody.GetRid());
+			if (_trackingTarget is CollisionObject3D co) excludeArray.Add(co.GetRid());
+			query.Exclude = excludeArray;
+
+			var spaceState = GetWorld3D().DirectSpaceState;
+			var hit = spaceState.IntersectRay(query);
+
+			if (hit.Count > 0)
+			{
+				Vector3 hitPos = hit["position"].As<Vector3>();
+				Vector3 hitNormal = hit["normal"].As<Vector3>();
+				desiredPosition = hitPos + hitNormal * 0.2f;
+			}
+		}
+
+		// 3. 位置の追従（Lerp）
 		GlobalPosition = GlobalPosition.Lerp(desiredPosition, FollowPositionLerpSpeed * delta);
 
-		Vector3 toTarget = (_trackingTarget.GlobalPosition - GlobalPosition).Normalized();
+		// 4. 【一流のカメラワーク】視線の回転処理
+		// クリーチャーの「中心（ピボット）」ではなく、やや上（頭のあたりなど）を常に捉える
+		Vector3 lookAtTarget = _trackingTarget.GlobalPosition + Vector3.Up * 0.2f; 
+		Vector3 toTarget = (lookAtTarget - GlobalPosition).Normalized();
+
 		if (toTarget.LengthSquared() > 0.0001f)
 		{
+			// 第2引数を Vector3.Up にすることで、カメラの「傾き（ロール）」を完全に封殺します
 			Basis desiredBasis = Basis.LookingAt(toTarget, Vector3.Up);
 			Quaternion currentQ = GlobalTransform.Basis.GetRotationQuaternion();
 			Quaternion targetQ = desiredBasis.GetRotationQuaternion();
+			
+			// じわっと滑らかにターゲットをフレームに収める
 			Quaternion newQ = currentQ.Slerp(targetQ, FollowRotationLerpSpeed * delta);
 			GlobalTransform = new Transform3D(new Basis(newQ), GlobalPosition);
 
+			// 次回自由カメラに戻った時のための角度の同期
 			Vector3 euler = GlobalRotation;
 			_rotX = euler.X;
 			_rotY = euler.Y;
 		}
 	}
-
 	private void UpdateCenterRayHighlight()
 	{
 		Node3D creature = GetCreatureUnderCrosshair();

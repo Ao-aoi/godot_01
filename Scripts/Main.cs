@@ -56,6 +56,15 @@ public partial class Main : Node3D
 	private int _manualKillCount = 0;
 	private bool _isGenerationTransitioning;
 
+	// フェーズ3: ショップ / メタゲーム
+	private int _currency = 0;
+	private bool _shopVisible = false;
+	private Control _shopPanel;
+	private Label _currencyLabel;
+	private System.Collections.Generic.List<ShopItem> _shopItems = new();
+	private bool _knifeUnlocked = false;
+	private float _inheritanceBoost = 0.0f; // 今は未使用だがデータとして保持
+
 	public override void _Ready()
 	{
 		GD.Print("Artificial_Selection 起動成功！");
@@ -64,6 +73,7 @@ public partial class Main : Node3D
 		_foodSpawnDistance = Mathf.Clamp(DefaultFoodSpawnDistance, MinFoodSpawnDistance, MaxFoodSpawnDistance);
 		SetupPredictionLine();
 		SetupCreatureUI();
+		SetupShopUI();
 		SpawnGeneration();
 	}
 
@@ -77,19 +87,18 @@ public partial class Main : Node3D
 			if (!IsInstanceValid(creature))
 			{
 				_aliveCreatures.RemoveAt(i);
+				if (_creatureMeta.TryGetValue(creature, out CreatureMeta meta) && meta.Alive)
+				{
+					meta.Alive = false;
+					_killedByPlayer[creature] = false;
+					UpdateCreatureUI();
+				}
 				continue;
 			}
 
 			if (creature.GlobalPosition.Y < AbyssY)
 			{
-				// 事故死: プレイヤー殺害扱いにしない
-				_killedByPlayer[creature] = false;
-				creature.QueueFree();
-				if (_creatureMeta.ContainsKey(creature))
-				{
-					_creatureMeta[creature].Alive = false;
-				}
-				UpdateCreatureUI();
+				HandleCreatureRemoval(creature, false);
 			}
 		}
 
@@ -101,6 +110,12 @@ public partial class Main : Node3D
 
 	public override void _UnhandledInput(InputEvent @event)
 	{
+		// ショップ表示トグル: 'S' キーで開閉
+		if (@event is InputEventKey kev && kev.Pressed && kev.Keycode == Key.E)
+		{
+			ToggleShopVisibility();
+			return;
+		}
 		if (@event.IsActionPressed("ui_accept"))
 		{
 			GD.Print("Enter: 現世代に個体を追加");
@@ -114,6 +129,16 @@ public partial class Main : Node3D
 
 		if (@event is InputEventMouseButton mouseButton && mouseButton.ButtonIndex == MouseButton.Left)
 		{
+			// 左クリックされた時、もしショップが開いていたら閉じる
+			if (mouseButton.ButtonIndex == MouseButton.Left && _shopVisible)
+			{
+				// UI（ボタンやパネル）がクリックイベントをすでにハンドル（吸収）していなければ、ここに来る
+				ToggleShopVisibility();
+				// 他のクリック処理（エサを投げるなど）が暴発しないようにイベントを消費させる
+				GetViewport().SetInputAsHandled();
+				return;
+			}
+			
 			if (mouseButton.Pressed)
 			{
 				_isFoodAiming = true;
@@ -142,7 +167,16 @@ public partial class Main : Node3D
 				object collider = result["collider"];
 				if (collider is RigidBody3D rb && _aliveCreatures.Contains(rb))
 				{
-					SelectCreature(rb);
+					// ショップでナイフをアンロックしていれば、Shift+右クリックで即殺
+					if (_knifeUnlocked && Input.IsKeyPressed(Key.Shift))
+					{
+						_manualKillCount++;
+						HandleCreatureRemoval(rb, true);
+					}
+					else
+					{
+						SelectCreature(rb);
+					}
 				}
 			}
 		}
@@ -228,19 +262,54 @@ public partial class Main : Node3D
 			{
 				RigidBody3D c = kv.Key;
 				CreatureMeta meta = kv.Value;
-				string label = (meta.Alive ? "生存: " : "死亡: ") + c.Name;
+				bool isAlive = meta.Alive && IsInstanceValid(c) && _aliveCreatures.Contains(c);
+				string label = (isAlive ? "生存: " : "死亡: ") + c.Name;
 				if (meta.Traits.Count > 0)
 				{
 					label += " [" + string.Join(",", meta.Traits) + "]";
 				}
 				Button b = new Button();
 				b.Text = label;
-				b.Disabled = !meta.Alive;
+				b.Disabled = !isAlive;
 				// クロージャで捕まえる
 				RigidBody3D captured = c;
 				b.Pressed += () => { if (captured != null) SelectCreature(captured); };
-				if (meta.Alive) _aliveList.AddChild(b); else _deadList.AddChild(b);
+				if (isAlive) _aliveList.AddChild(b); else _deadList.AddChild(b);
 				_creatureButtons[c] = b;
+			}
+		}
+
+		private void HandleCreatureRemoval(RigidBody3D creature, bool killedByPlayer)
+		{
+			if (creature == null)
+			{
+				return;
+			}
+
+			if (_creatureMeta.TryGetValue(creature, out CreatureMeta meta) && !meta.Alive)
+			{
+				return;
+			}
+
+			if (_creatureMeta.TryGetValue(creature, out CreatureMeta removalMeta))
+			{
+				removalMeta.Alive = false;
+			}
+
+			_aliveCreatures.Remove(creature);
+			_killedByPlayer[creature] = killedByPlayer;
+
+			// プレイヤーによる撃破なら報酬を付与
+			if (killedByPlayer)
+			{
+				_currency += 5; // 固定報酬
+				UpdateShopUI();
+			}
+			UpdateCreatureUI();
+
+			if (IsInstanceValid(creature))
+			{
+				creature.QueueFree();
 			}
 		}
 
@@ -254,6 +323,107 @@ public partial class Main : Node3D
 			{
 				child.QueueFree();
 			}
+		}
+	}
+
+	// ---- フェーズ3: ショップUIとロジック ----
+	private void SetupShopUI()
+	{
+		if (_uiLayer == null)
+		{
+			_uiLayer = new CanvasLayer();
+			AddChild(_uiLayer);
+		}
+
+		Panel shopPanel = new Panel();
+		shopPanel.Visible = false;
+		_uiLayer.AddChild(shopPanel);
+		_shopPanel = shopPanel;
+
+		VBoxContainer root = new VBoxContainer();
+		shopPanel.AddChild(root);
+
+		Label title = new Label();
+		title.Text = "ショップ";
+		root.AddChild(title);
+
+		_currencyLabel = new Label();
+		_currencyLabel.Text = "Points: 0";
+		root.AddChild(_currencyLabel);
+
+		// アイテムをこの場で定義する（将来的には外部リソース化可能）
+		_shopItems = new System.Collections.Generic.List<ShopItem>()
+		{
+			new ShopItem { ItemName = "スポーン数+1", Description = "初期スポーン数を1増やす", Cost = 10, Action = ShopAction.IncreaseSpawn, Value = 1 },
+			new ShopItem { ItemName = "ペナルティ軽減", Description = "手動殺害ペナルティを1減らす", Cost = 8, Action = ShopAction.ReduceKillPenalty, Value = 1 },
+			new ShopItem { ItemName = "ナイフアンロック", Description = "Shift+右クリックで個体を即殺できる", Cost = 20, Action = ShopAction.UnlockKnife, Value = 1 }
+		};
+
+		foreach (var item in _shopItems)
+		{
+			Button b = new Button();
+			b.Text = $"{item.ItemName} ({item.Cost})";
+			b.Pressed += () => { TryPurchase(item); };
+			root.AddChild(b);
+		}
+
+		Button close = new Button();
+		close.Text = "閉じる";
+		close.Pressed += () => { ToggleShopVisibility(); };
+		root.AddChild(close);
+
+		UpdateShopUI();
+	}
+
+	private void UpdateShopUI()
+	{
+		if (_currencyLabel != null)
+		{
+			_currencyLabel.Text = $"Points: {_currency}";
+		}
+		if (_shopPanel != null)
+		{
+			_shopPanel.Visible = _shopVisible;
+		}
+	}
+
+	private void ToggleShopVisibility()
+	{
+		_shopVisible = !_shopVisible;
+		UpdateShopUI();
+
+		if (_shopVisible)
+		{
+			Input.MouseMode = Input.MouseModeEnum.Visible; // マウスを自由に動かせるようにする
+		}
+		else
+		{
+			Input.MouseMode = Input.MouseModeEnum.Captured; // 再び画面中央に拘束する
+		}
+	}
+
+	private void TryPurchase(ShopItem item)
+	{
+		if (item == null) return;
+		if (_currency < item.Cost) return;
+		_currency -= item.Cost;
+		ApplyShopItem(item);
+		UpdateShopUI();
+	}
+
+	private void ApplyShopItem(ShopItem item)
+	{
+		switch (item.Action)
+		{
+			case ShopAction.IncreaseSpawn:
+				InitialSpawnCount += item.Value;
+				break;
+			case ShopAction.ReduceKillPenalty:
+				_manualKillCount = Mathf.Max(0, _manualKillCount - item.Value);
+				break;
+			case ShopAction.UnlockKnife:
+				_knifeUnlocked = true;
+				break;
 		}
 	}
 
@@ -526,13 +696,10 @@ public partial class Main : Node3D
 		creatureInstance.Mass *= toughness;
 		creatureInstance.Scale = Vector3.One * Mathf.Clamp(toughness, 1.0f, 2.2f);
 
-		AddChild(creatureInstance);
-		_aliveCreatures.Add(creatureInstance);
-		_killedByPlayer[creatureInstance] = false;
-
-		// --- フェーズ2: メタデータとランダム特性の付与 ---
+		// --- 【修正】ツリーに追加する前に、まずメタデータと名前を確定させる ---
 		var meta = new CreatureMeta();
 		string[] pool = new string[] { "目がいい", "鼻がきく", "速い", "力が強い" };
+		
 		// ランダムに0~2個の特性を付与
 		int traitCount = (int)GD.RandRange(0, 3);
 		for (int t = 0; t < traitCount; t++)
@@ -540,12 +707,36 @@ public partial class Main : Node3D
 			string pick = pool[(int)GD.RandRange(0, pool.Length)];
 			if (!meta.Traits.Contains(pick)) meta.Traits.Add(pick);
 		}
-		// 名前を生成して割り当てる
+		
+		// 名前を生成してオブジェクトに割り当てる
 		meta.Name = GenerateCreatureName(meta);
-		// Node の名前にもセットして UI 表示で使えるようにする
 		creatureInstance.Name = meta.Name;
 		_creatureMeta[creatureInstance] = meta;
+		// -------------------------------------------------------------
+
+		// --- 【修正】すべての設定が終わった段階でシーンツリーに追加する ---
+		AddChild(creatureInstance);
+		_aliveCreatures.Add(creatureInstance);
+		_killedByPlayer[creatureInstance] = false;
+		creatureInstance.TreeExiting += () => OnCreatureTreeExiting(creatureInstance);
+
+		// 最後にUIを更新
 		UpdateCreatureUI();
+	}
+
+	private void OnCreatureTreeExiting(RigidBody3D creature)
+	{
+		if (creature == null)
+		{
+			return;
+		}
+
+		if (_creatureMeta.TryGetValue(creature, out CreatureMeta meta) && !meta.Alive)
+		{
+			return;
+		}
+
+		HandleCreatureRemoval(creature, _killedByPlayer.TryGetValue(creature, out bool killedByPlayer) && killedByPlayer);
 	}
 
 	// 個体の特性に基づくランダムな名前を生成する
@@ -602,12 +793,12 @@ public partial class Main : Node3D
 				continue;
 			}
 
-			_killedByPlayer[creature] = true;
 			_manualKillCount++;
-			creature.QueueFree();
+			HandleCreatureRemoval(creature, true);
 		}
 
 		_aliveCreatures.Clear();
+		UpdateCreatureUI();
 		GD.Print($"手動殺害ペナルティ累計: {_manualKillCount}");
 	}
 }
