@@ -35,6 +35,7 @@ public partial class Main : Node3D
 	{
 		public List<string> Traits = new();
 		public bool Alive = true;
+		public string Name = "";
 	}
 	private readonly System.Collections.Generic.Dictionary<RigidBody3D, CreatureMeta> _creatureMeta = new();
 
@@ -539,8 +540,50 @@ public partial class Main : Node3D
 			string pick = pool[(int)GD.RandRange(0, pool.Length)];
 			if (!meta.Traits.Contains(pick)) meta.Traits.Add(pick);
 		}
+		// 名前を生成して割り当てる
+		meta.Name = GenerateCreatureName(meta);
+		// Node の名前にもセットして UI 表示で使えるようにする
+		creatureInstance.Name = meta.Name;
 		_creatureMeta[creatureInstance] = meta;
 		UpdateCreatureUI();
+	}
+
+	// 個体の特性に基づくランダムな名前を生成する
+	private string GenerateCreatureName(CreatureMeta meta)
+	{
+		// 特性に応じた接頭語（日本語短文字）
+		var prefixPool = new List<string>();
+		if (meta.Traits.Contains("目がいい")) prefixPool.Add("視");
+		if (meta.Traits.Contains("鼻がきく")) prefixPool.Add("嗅");
+		if (meta.Traits.Contains("速い")) prefixPool.Add("迅");
+		if (meta.Traits.Contains("力が強い")) prefixPool.Add("剛");
+		if (prefixPool.Count == 0) prefixPool.Add("");
+
+		string[] syllables = new string[] { "アル", "オル", "イナ", "カラ", "シア", "リク", "ノア", "サラ", "トウ", "メル" };
+		string prefix = prefixPool[(int)GD.RandRange(0, prefixPool.Count)];
+		string baseName = syllables[(int)GD.RandRange(0, syllables.Length)];
+		string extra = "";
+		// 稀に接尾語を追加
+		if (GD.Randf() < 0.25f)
+		{
+			extra = syllables[(int)GD.RandRange(0, syllables.Length)];
+		}
+		string name = prefix + baseName + extra;
+
+		// 既存の名前と被らないように調整
+		int suffix = 1;
+		var existing = new HashSet<string>();
+		foreach (var kv in _creatureMeta)
+		{
+			if (!string.IsNullOrEmpty(kv.Value.Name)) existing.Add(kv.Value.Name);
+		}
+		string unique = name;
+		while (existing.Contains(unique))
+		{
+			suffix++;
+			unique = name + "-" + suffix.ToString();
+		}
+		return unique;
 	}
 
 	private void ForceCullCurrentGeneration()

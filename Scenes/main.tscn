@@ -18,6 +18,8 @@ radius = 0.2
 script = ExtResource("1_ig7tw")
 CreatureScene = ExtResource("2_0xm2m")
 FoodScene = ExtResource("4_food1")
+PredictionGapLength = 0.1
+PredictionLineThickness = 0.07
 
 [node name="Island" parent="." unique_id=656580486 instance=ExtResource("3_8gbba")]
 
