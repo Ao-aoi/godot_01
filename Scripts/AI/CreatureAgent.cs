@@ -83,6 +83,8 @@ public partial class CreatureAgent : RigidBody3D
 
 	private int configuredGeneration;
 
+	private string DisplayName => $"[G{configuredGeneration}] {Name}";
+
 	public override void _PhysicsProcess(double delta)
 	{
 		if (_isDead)
@@ -304,7 +306,7 @@ public partial class CreatureAgent : RigidBody3D
 		}
 		// ログ出力を追加して、食べられたことを確認できるようにする
 		_foodsEaten++;
-		GD.Print($"{Name} がエサを食べた: {food.GlobalPosition}");
+		GD.Print($"{DisplayName} がエサを食べた: {food.GlobalPosition}");
 		_fitness += FoodReward;
 		_timeSinceLastMeal = 0.0f;
 		food.QueueFree();
@@ -357,8 +359,10 @@ public partial class CreatureAgent : RigidBody3D
 			_deathCauseLabel = cause == DeathCause.Starvation ? "餓死" : "落下死";
 		}
 
-		CreateDamagePopup(Mathf.Max(1, Mathf.RoundToInt(amount)));
+		int dmgInt = Mathf.Max(1, Mathf.RoundToInt(amount));
+		CreateDamagePopup(dmgInt);
 		_health = Mathf.Max(0.0f, _health - amount);
+		GD.Print($"{DisplayName} が {dmgInt} のダメージを受けた。体力: {_health}/{MaxHealth}");
 		if (_health <= 0.0f)
 		{
 			if (_deathCause == DeathCause.None)

@@ -15,6 +15,7 @@ MoveForce = 3.0
 TurnTorque = 1.0
 JumpImpulse = 1.0
 GroundProbeDistance = 0.3
+HealthBarHeight = 0.5
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=529152936]
 transform = Transform3D(0.25, 0, 0, 0, 0.25, 0, 0, 0, 0.25, 0, 0, 0)
