@@ -1,6 +1,7 @@
 using Godot;
 using Godot.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 public partial class Main : Node3D
 {
@@ -27,8 +28,9 @@ public partial class Main : Node3D
 	[Export] public float PredictionLineThicknessScale = 1.7f;
 
 	private readonly Vector3 _spawnPosition = new(0, 7, 0);
-	private readonly List<RigidBody3D> _aliveCreatures = new();
-	private readonly System.Collections.Generic.Dictionary<RigidBody3D, bool> _killedByPlayer = new();
+	private readonly List<CreatureAgent> _aliveCreatures = new();
+	private readonly System.Collections.Generic.Dictionary<CreatureAgent, bool> _killedByPlayer = new();
+	private readonly List<CreatureMeta> _generationCandidates = new();
 
 	// フェーズ2用: 個体に関するメタデータ管理
 	private class CreatureMeta
@@ -36,11 +38,16 @@ public partial class Main : Node3D
 		public string DisplayName = string.Empty;
 		public List<string> Traits = new();
 		public bool Alive = true;
+		public int GenerationIndex = 1;
+		public float Fitness = 0.0f;
+		public int FoodsEaten = 0;
+		public CreatureGenome Genome = CreatureGenome.Randomize();
+		public CreatureAgent Agent = null;
 	}
-	private readonly System.Collections.Generic.Dictionary<RigidBody3D, CreatureMeta> _creatureMeta = new();
+	private readonly System.Collections.Generic.Dictionary<CreatureAgent, CreatureMeta> _creatureMeta = new();
 
 	// ホバー/ハイライト用
-	private RigidBody3D _hoveredCreature = null;
+	private CreatureAgent _hoveredCreature = null;
 	private MeshInstance3D _hoveredMesh = null;
 	private StandardMaterial3D _highlightMaterial = null;
 	private CharacterBody3D _player;
@@ -78,7 +85,7 @@ public partial class Main : Node3D
 
 		for (int i = _aliveCreatures.Count - 1; i >= 0; i--)
 		{
-			RigidBody3D creature = _aliveCreatures[i];
+			CreatureAgent creature = _aliveCreatures[i];
 			if (!IsInstanceValid(creature))
 			{
 				_aliveCreatures.RemoveAt(i);
@@ -88,12 +95,7 @@ public partial class Main : Node3D
 			if (creature.GlobalPosition.Y < AbyssY)
 			{
 				// 事故死: プレイヤー殺害扱いにしない
-				_killedByPlayer[creature] = false;
-				creature.QueueFree();
-				if (_creatureMeta.ContainsKey(creature))
-				{
-					_creatureMeta[creature].Alive = false;
-				}
+				HandleCreatureDeath(creature, false);
 				UpdateCreatureUI();
 			}
 		}
@@ -109,7 +111,7 @@ public partial class Main : Node3D
 		if (@event.IsActionPressed("ui_accept"))
 		{
 			GD.Print("Enter: 現世代に個体を追加");
-			SpawnCreature();
+			SpawnCreature(CreatureGenome.Randomize(), CreateTraitsForNextCreature());
 		}
 
 		if (@event.IsActionPressed("ui_select"))
@@ -153,9 +155,10 @@ public partial class Main : Node3D
 			if (result.Count > 0)
 			{
 				object collider = result["collider"];
-				if (collider is RigidBody3D rb && _aliveCreatures.Contains(rb))
+				CreatureAgent clickedCreature = ResolveCreatureAgent(collider as Node);
+				if (clickedCreature != null && _aliveCreatures.Contains(clickedCreature))
 				{
-					SelectCreature(rb);
+					SelectCreature(clickedCreature);
 				}
 			}
 		}
@@ -182,7 +185,7 @@ public partial class Main : Node3D
 		}
 	}
 
-	private void SelectCreature(RigidBody3D creature)
+	private void SelectCreature(CreatureAgent creature)
 	{
 		if (_camera == null) return;
 		if (_camera is CameraController cc)
@@ -195,7 +198,7 @@ public partial class Main : Node3D
 	private CanvasLayer _uiLayer;
 	private VBoxContainer _aliveList;
 	private VBoxContainer _deadList;
-	private readonly System.Collections.Generic.Dictionary<RigidBody3D, Button> _creatureButtons = new();
+	private readonly System.Collections.Generic.Dictionary<CreatureAgent, Button> _creatureButtons = new();
 
 	private void SetupCreatureUI()
 	{
@@ -237,9 +240,10 @@ public partial class Main : Node3D
 		// 生存中リスト
 		foreach (var kv in _creatureMeta)
 		{
-			RigidBody3D c = kv.Key;
+			CreatureAgent c = kv.Key;
 			CreatureMeta meta = kv.Value;
 			string label = (meta.Alive ? "生存: " : "死亡: ") + meta.DisplayName;
+			label += $"  F:{meta.Fitness:0.0}  食:{meta.FoodsEaten}";
 			if (meta.Traits.Count > 0)
 			{
 				label += " [" + string.Join(",", meta.Traits) + "]";
@@ -247,7 +251,7 @@ public partial class Main : Node3D
 			Button b = new Button();
 			b.Text = label;
 			b.Disabled = !meta.Alive;
-			RigidBody3D captured = c;
+			CreatureAgent captured = c;
 			b.Pressed += () => { if (captured != null) SelectCreature(captured); };
 			if (meta.Alive) _aliveList.AddChild(b); else _deadList.AddChild(b);
 			_creatureButtons[c] = b;
@@ -282,7 +286,8 @@ public partial class Main : Node3D
 		if (result.Count > 0)
 		{
 			object collider = result["collider"];
-			if (collider is RigidBody3D rb && _aliveCreatures.Contains(rb))
+			CreatureAgent rb = ResolveCreatureAgent(collider as Node);
+			if (rb != null && _aliveCreatures.Contains(rb))
 			{
 				if (rb != _hoveredCreature) HighlightCreature(rb);
 				return;
@@ -291,19 +296,13 @@ public partial class Main : Node3D
 		ClearHighlight();
 	}
 
-	private MeshInstance3D GetCreatureMesh(RigidBody3D creature)
+	private MeshInstance3D GetCreatureMesh(CreatureAgent creature)
 	{
 		if (creature == null) return null;
-		var mesh = creature.GetNodeOrNull<MeshInstance3D>("MeshInstance3D");
-		if (mesh != null) return mesh;
-		for (int i = 0; i < creature.GetChildCount(); i++)
-		{
-			if (creature.GetChild(i) is MeshInstance3D m) return m;
-		}
-		return null;
+		return FindFirstDescendant<MeshInstance3D>(creature);
 	}
 
-	private void HighlightCreature(RigidBody3D creature)
+	private void HighlightCreature(CreatureAgent creature)
 	{
 		ClearHighlight();
 		var mesh = GetCreatureMesh(creature);
@@ -550,6 +549,7 @@ public partial class Main : Node3D
 		foodInstance.GlobalPosition = spawnPosition + Vector3.Up * FoodSpawnHeight;
 		foodInstance.LinearVelocity = Vector3.Zero;
 		foodInstance.AngularVelocity = Vector3.Zero;
+		foodInstance.AddToGroup("food");
 		AddChild(foodInstance);
 		GD.Print($"エサを投下: {foodInstance.GlobalPosition}");
 	}
@@ -582,6 +582,9 @@ public partial class Main : Node3D
 	private async void StartNextGeneration()
 	{
 		_isGenerationTransitioning = true;
+		_generationCandidates.Clear();
+		_generationCandidates.AddRange(_creatureMeta.Values.Where(meta => meta.GenerationIndex == _generation));
+		_generationCandidates.Sort((a, b) => b.Fitness.CompareTo(a.Fitness));
 		_generation++;
 		GD.Print($"--- 世代交代: Generation {_generation} ---");
 		await ToSignal(GetTree().CreateTimer(GenerationRespawnDelay), SceneTreeTimer.SignalName.Timeout);
@@ -596,7 +599,7 @@ public partial class Main : Node3D
 
 		for (int i = 0; i < spawnCount; i++)
 		{
-			SpawnCreature();
+			SpawnCreature(CreateGenomeForNextCreature(), CreateTraitsForNextCreature());
 		}
 	}
 
@@ -610,22 +613,72 @@ public partial class Main : Node3D
 		GD.Print("Space: 強制世代終了（手動殺害）");
 		for (int i = _aliveCreatures.Count - 1; i >= 0; i--)
 		{
-			RigidBody3D creature = _aliveCreatures[i];
+			CreatureAgent creature = _aliveCreatures[i];
 			if (!IsInstanceValid(creature))
 			{
 				continue;
 			}
 
-			_killedByPlayer[creature] = true;
+			HandleCreatureDeath(creature, true);
 			_manualKillCount++;
-			creature.QueueFree();
 		}
 
 		_aliveCreatures.Clear();
 		GD.Print($"手動殺害ペナルティ累計: {_manualKillCount}");
 	}
 
-	private void SpawnCreature()
+	private CreatureGenome CreateGenomeForNextCreature()
+	{
+		if (_generationCandidates.Count == 0)
+		{
+			return CreatureGenome.Randomize();
+		}
+
+		CreatureMeta elite = _generationCandidates[0];
+		if (_generationCandidates.Count == 1)
+		{
+			CreatureGenome single = elite.Genome.Clone();
+			single.Mutate(0.10f, 0.25f);
+			return single;
+		}
+
+		CreatureMeta parentA = _generationCandidates[0];
+		CreatureMeta parentB = _generationCandidates[Mathf.Min(1, _generationCandidates.Count - 1)];
+		CreatureGenome child = CreatureGenome.Crossover(parentA.Genome, parentB.Genome);
+		child.Mutate(0.14f, 0.30f);
+		return child;
+	}
+
+	private List<string> CreateTraitsForNextCreature()
+	{
+		string[] pool = new string[] { "目がいい", "鼻がきく", "速い", "力が強い" };
+		List<string> traits = new();
+
+		if (_generationCandidates.Count > 0)
+		{
+			foreach (CreatureMeta parent in _generationCandidates.Take(2))
+			{
+				foreach (string trait in parent.Traits)
+				{
+					if (!traits.Contains(trait) && GD.Randf() < 0.72f)
+					{
+						traits.Add(trait);
+					}
+				}
+			}
+		}
+
+		int traitCount = (int)GD.RandRange(0, 2);
+		for (int i = 0; i < traitCount; i++)
+		{
+			string pick = pool[(int)GD.RandRange(0, pool.Length)];
+			if (!traits.Contains(pick)) traits.Add(pick);
+		}
+
+		return traits;
+	}
+
+	private void SpawnCreature(CreatureGenome genome, List<string> traits)
 	{
 		if (CreatureScene == null)
 		{
@@ -633,7 +686,7 @@ public partial class Main : Node3D
 			return;
 		}
 
-		RigidBody3D creatureInstance = CreatureScene.Instantiate<RigidBody3D>();
+		CreatureAgent creatureInstance = CreatureScene.Instantiate<CreatureAgent>();
 		Vector3 randomOffset = new(
 			(float)GD.RandRange(-SpawnRadius, SpawnRadius),
 			0,
@@ -642,27 +695,85 @@ public partial class Main : Node3D
 
 		// 殺害ペナルティ: 手動殺害回数が増えるほど次世代がタフに
 		float toughness = 1.0f + (_manualKillCount * 0.06f);
-		creatureInstance.Mass *= toughness;
 		creatureInstance.Scale = Vector3.One * Mathf.Clamp(toughness, 1.0f, 2.2f);
 
-		// --- フェーズ2: メタデータとランダム特性の付与 ---
 		var meta = new CreatureMeta();
-		string[] pool = new string[] { "目がいい", "鼻がきく", "速い", "力が強い" };
-		int traitCount = (int)GD.RandRange(0, 3);
-		for (int t = 0; t < traitCount; t++)
-		{
-			string pick = pool[(int)GD.RandRange(0, pool.Length)];
-			if (!meta.Traits.Contains(pick)) meta.Traits.Add(pick);
-		}
+		meta.GenerationIndex = _generation;
+		meta.Traits = new List<string>(traits);
+		meta.Genome = genome.Clone();
 		meta.DisplayName = GenerateCreatureName(meta.Traits);
 		_creatureMeta[creatureInstance] = meta;
 		creatureInstance.Name = meta.DisplayName;
+		creatureInstance.AddToGroup("creatures");
 
 		AddChild(creatureInstance);
 		creatureInstance.GlobalPosition = _spawnPosition + randomOffset;
+		creatureInstance.Configure(meta.Genome, meta.Traits, _generation);
+		meta.Agent = creatureInstance;
 		_aliveCreatures.Add(creatureInstance);
 		_killedByPlayer[creatureInstance] = false;
 		UpdateCreatureUI();
+	}
+
+	private void HandleCreatureDeath(CreatureAgent creature, bool killedByPlayer)
+	{
+		if (creature == null || !IsInstanceValid(creature))
+		{
+			return;
+		}
+
+		_killedByPlayer[creature] = killedByPlayer;
+		if (_creatureMeta.TryGetValue(creature, out CreatureMeta meta))
+		{
+			meta.Alive = false;
+			if (meta.Agent != null)
+			{
+				meta.Fitness = meta.Agent.Fitness;
+				meta.FoodsEaten = meta.Agent.FoodsEaten;
+			}
+		}
+
+		creature.QueueFree();
+	}
+
+	private CreatureAgent ResolveCreatureAgent(Node node)
+	{
+		Node current = node;
+		while (current != null)
+		{
+			if (current is CreatureAgent creature)
+			{
+				return creature;
+			}
+
+			current = current.GetParent();
+		}
+
+		return null;
+	}
+
+	private static T FindFirstDescendant<T>(Node root) where T : class
+	{
+		if (root == null)
+		{
+			return null;
+		}
+
+		if (root is T typed)
+		{
+			return typed;
+		}
+
+		for (int i = 0; i < root.GetChildCount(); i++)
+		{
+			T descendant = FindFirstDescendant<T>(root.GetChild(i));
+			if (descendant != null)
+			{
+				return descendant;
+			}
+		}
+
+		return null;
 	}
 
 	private string GenerateCreatureName(List<string> traits)
