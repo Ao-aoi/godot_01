@@ -163,7 +163,8 @@ public partial class CreatureAgent : RigidBody3D
 		{
 			if (child is HingeJoint3D hinge)
 			{
-				hinge.SetFlag(HingeJoint3D.Flag.UseMotor, true);
+				// Godot 4: Use MotorMaxImpulse to enable the motor (non-zero enables it)
+				hinge.SetParam(HingeJoint3D.Param.MotorMaxImpulse, 10.0f);
 				_motorJoints.Add(hinge);
 			}
 		}

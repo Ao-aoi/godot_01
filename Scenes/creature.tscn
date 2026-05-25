@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3 uid="uid://sy4fnxejuef4"]
+[gd_scene format=3 uid="uid://sy4fnxejuef4"]
 
 [ext_resource type="Script" uid="uid://tr4qbf12fv7e" path="res://Scripts/AI/CreatureAgent.cs" id="1"]
 
@@ -17,49 +17,46 @@ radius = 0.1
 height = 0.42
 
 [node name="Creature2" type="RigidBody3D" unique_id=844923627]
-script = ExtResource("1")
 mass = 1.3
+script = ExtResource("1")
+BaseSightRange = 5.0
+BaseSmellRange = 10.0
+MoveForce = 5.0
+TurnTorque = 3.0
+JumpImpulse = 1.2
 
-[node name="BodyMesh" type="MeshInstance3D" parent="."]
+[node name="BodyMesh" type="MeshInstance3D" parent="." unique_id=1488664059]
 mesh = SubResource("BoxMesh_body")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1328819545]
 shape = SubResource("BoxShape3D_body")
 
-[node name="LeftLimb" type="RigidBody3D" parent="."]
-position = Vector3(-0.52, -0.22, 0.0)
+[node name="LeftLimb" type="RigidBody3D" parent="." unique_id=1645666806]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.52, -0.22, 0)
 mass = 0.42
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="LeftLimb"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="LeftLimb" unique_id=979004541]
 mesh = SubResource("CapsuleMesh_limb")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="LeftLimb"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="LeftLimb" unique_id=1560817875]
 shape = SubResource("CapsuleShape3D_limb")
 
-[node name="RightLimb" type="RigidBody3D" parent="."]
-position = Vector3(0.52, -0.22, 0.0)
+[node name="RightLimb" type="RigidBody3D" parent="." unique_id=1531652594]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.52, -0.22, 0)
 mass = 0.42
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="RightLimb"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="RightLimb" unique_id=1383872698]
 mesh = SubResource("CapsuleMesh_limb")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="RightLimb"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="RightLimb" unique_id=1053204680]
 shape = SubResource("CapsuleShape3D_limb")
 
-[node name="LeftJoint" type="HingeJoint3D" parent="."]
-position = Vector3(-0.4, -0.1, 0.0)
+[node name="LeftJoint" type="HingeJoint3D" parent="." unique_id=486566473]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.4, -0.1, 0)
 node_a = NodePath("..")
 node_b = NodePath("../LeftLimb")
-angular_limit/enable = false
-angular_motor/enable = true
-angular_motor/target_velocity = 0.0
-angular_motor/max_impulse = 18.0
 
-[node name="RightJoint" type="HingeJoint3D" parent="."]
-position = Vector3(0.4, -0.1, 0.0)
+[node name="RightJoint" type="HingeJoint3D" parent="." unique_id=67796288]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.4, -0.1, 0)
 node_a = NodePath("..")
 node_b = NodePath("../RightLimb")
-angular_limit/enable = false
-angular_motor/enable = true
-angular_motor/target_velocity = 0.0
-angular_motor/max_impulse = 18.0
