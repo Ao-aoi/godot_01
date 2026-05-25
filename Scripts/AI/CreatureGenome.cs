@@ -4,9 +4,9 @@ using System.Collections.Generic;
 
 public sealed class CreatureGenome
 {
-	public const int InputCount = 74;
-	public const int HiddenCount = 24;
-	public const int OutputCount = 36;
+	public const int InputCount = 16;
+	public const int HiddenCount = 12;
+	public const int OutputCount = 4;
 
 	public readonly float[] InputHiddenWeights;
 	public readonly float[] HiddenBiases;

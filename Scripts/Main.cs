@@ -28,8 +28,8 @@ public partial class Main : Node3D
 	[Export] public float PredictionLineThicknessScale = 1.7f;
 
 	private readonly Vector3 _spawnPosition = new(0, 7, 0);
-	private readonly List<CreatureAgent> _aliveCreatures = new();
-	private readonly System.Collections.Generic.Dictionary<CreatureAgent, bool> _killedByPlayer = new();
+	private readonly List<RigidBody3D> _aliveCreatures = new();
+	private readonly System.Collections.Generic.Dictionary<RigidBody3D, bool> _killedByPlayer = new();
 	private readonly List<CreatureMeta> _generationCandidates = new();
 
 	// フェーズ2用: 個体に関するメタデータ管理
@@ -44,10 +44,10 @@ public partial class Main : Node3D
 		public CreatureGenome Genome = CreatureGenome.Randomize();
 		public CreatureAgent Agent = null;
 	}
-	private readonly System.Collections.Generic.Dictionary<CreatureAgent, CreatureMeta> _creatureMeta = new();
+	private readonly System.Collections.Generic.Dictionary<RigidBody3D, CreatureMeta> _creatureMeta = new();
 
 	// ホバー/ハイライト用
-	private CreatureAgent _hoveredCreature = null;
+	private RigidBody3D _hoveredCreature = null;
 	private MeshInstance3D _hoveredMesh = null;
 	private StandardMaterial3D _highlightMaterial = null;
 	private CharacterBody3D _player;
@@ -85,7 +85,7 @@ public partial class Main : Node3D
 
 		for (int i = _aliveCreatures.Count - 1; i >= 0; i--)
 		{
-			CreatureAgent creature = _aliveCreatures[i];
+			RigidBody3D creature = _aliveCreatures[i];
 			if (!IsInstanceValid(creature))
 			{
 				_aliveCreatures.RemoveAt(i);
@@ -155,10 +155,9 @@ public partial class Main : Node3D
 			if (result.Count > 0)
 			{
 				object collider = result["collider"];
-				CreatureAgent clickedCreature = ResolveCreatureAgent(collider as Node);
-				if (clickedCreature != null && _aliveCreatures.Contains(clickedCreature))
+				if (collider is RigidBody3D rb && _aliveCreatures.Contains(rb))
 				{
-					SelectCreature(clickedCreature);
+					SelectCreature(rb);
 				}
 			}
 		}
@@ -185,7 +184,7 @@ public partial class Main : Node3D
 		}
 	}
 
-	private void SelectCreature(CreatureAgent creature)
+	private void SelectCreature(RigidBody3D creature)
 	{
 		if (_camera == null) return;
 		if (_camera is CameraController cc)
@@ -198,7 +197,7 @@ public partial class Main : Node3D
 	private CanvasLayer _uiLayer;
 	private VBoxContainer _aliveList;
 	private VBoxContainer _deadList;
-	private readonly System.Collections.Generic.Dictionary<CreatureAgent, Button> _creatureButtons = new();
+	private readonly System.Collections.Generic.Dictionary<RigidBody3D, Button> _creatureButtons = new();
 
 	private void SetupCreatureUI()
 	{
@@ -240,7 +239,7 @@ public partial class Main : Node3D
 		// 生存中リスト
 		foreach (var kv in _creatureMeta)
 		{
-			CreatureAgent c = kv.Key;
+			RigidBody3D c = kv.Key;
 			CreatureMeta meta = kv.Value;
 			string label = (meta.Alive ? "生存: " : "死亡: ") + meta.DisplayName;
 			label += $"  F:{meta.Fitness:0.0}  食:{meta.FoodsEaten}";
@@ -251,7 +250,7 @@ public partial class Main : Node3D
 			Button b = new Button();
 			b.Text = label;
 			b.Disabled = !meta.Alive;
-			CreatureAgent captured = c;
+			RigidBody3D captured = c;
 			b.Pressed += () => { if (captured != null) SelectCreature(captured); };
 			if (meta.Alive) _aliveList.AddChild(b); else _deadList.AddChild(b);
 			_creatureButtons[c] = b;
@@ -286,8 +285,7 @@ public partial class Main : Node3D
 		if (result.Count > 0)
 		{
 			object collider = result["collider"];
-			CreatureAgent rb = ResolveCreatureAgent(collider as Node);
-			if (rb != null && _aliveCreatures.Contains(rb))
+			if (collider is RigidBody3D rb && _aliveCreatures.Contains(rb))
 			{
 				if (rb != _hoveredCreature) HighlightCreature(rb);
 				return;
@@ -296,13 +294,19 @@ public partial class Main : Node3D
 		ClearHighlight();
 	}
 
-	private MeshInstance3D GetCreatureMesh(CreatureAgent creature)
+	private MeshInstance3D GetCreatureMesh(RigidBody3D creature)
 	{
 		if (creature == null) return null;
-		return FindFirstDescendant<MeshInstance3D>(creature);
+		var mesh = creature.GetNodeOrNull<MeshInstance3D>("MeshInstance3D");
+		if (mesh != null) return mesh;
+		for (int i = 0; i < creature.GetChildCount(); i++)
+		{
+			if (creature.GetChild(i) is MeshInstance3D m) return m;
+		}
+		return null;
 	}
 
-	private void HighlightCreature(CreatureAgent creature)
+	private void HighlightCreature(RigidBody3D creature)
 	{
 		ClearHighlight();
 		var mesh = GetCreatureMesh(creature);
@@ -613,7 +617,7 @@ public partial class Main : Node3D
 		GD.Print("Space: 強制世代終了（手動殺害）");
 		for (int i = _aliveCreatures.Count - 1; i >= 0; i--)
 		{
-			CreatureAgent creature = _aliveCreatures[i];
+			RigidBody3D creature = _aliveCreatures[i];
 			if (!IsInstanceValid(creature))
 			{
 				continue;
@@ -695,6 +699,7 @@ public partial class Main : Node3D
 
 		// 殺害ペナルティ: 手動殺害回数が増えるほど次世代がタフに
 		float toughness = 1.0f + (_manualKillCount * 0.06f);
+		creatureInstance.Mass *= toughness;
 		creatureInstance.Scale = Vector3.One * Mathf.Clamp(toughness, 1.0f, 2.2f);
 
 		var meta = new CreatureMeta();
@@ -715,7 +720,7 @@ public partial class Main : Node3D
 		UpdateCreatureUI();
 	}
 
-	private void HandleCreatureDeath(CreatureAgent creature, bool killedByPlayer)
+	private void HandleCreatureDeath(RigidBody3D creature, bool killedByPlayer)
 	{
 		if (creature == null || !IsInstanceValid(creature))
 		{
@@ -734,46 +739,6 @@ public partial class Main : Node3D
 		}
 
 		creature.QueueFree();
-	}
-
-	private CreatureAgent ResolveCreatureAgent(Node node)
-	{
-		Node current = node;
-		while (current != null)
-		{
-			if (current is CreatureAgent creature)
-			{
-				return creature;
-			}
-
-			current = current.GetParent();
-		}
-
-		return null;
-	}
-
-	private static T FindFirstDescendant<T>(Node root) where T : class
-	{
-		if (root == null)
-		{
-			return null;
-		}
-
-		if (root is T typed)
-		{
-			return typed;
-		}
-
-		for (int i = 0; i < root.GetChildCount(); i++)
-		{
-			T descendant = FindFirstDescendant<T>(root.GetChild(i));
-			if (descendant != null)
-			{
-				return descendant;
-			}
-		}
-
-		return null;
 	}
 
 	private string GenerateCreatureName(List<string> traits)
