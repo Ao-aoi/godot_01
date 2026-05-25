@@ -3,29 +3,41 @@ using System;
 
 public partial class CameraController : Camera3D
 {
+	[Signal]
+	public delegate void CrosshairHighlightChangedEventHandler(bool isHighlighted);
+
 	[ExportGroup("Movement Settings")]
 	public float MaxMoveSpeed = 8.0f;
 	public float MaxWalkSpeed = 3.0f;
-	public float Acceleration = 2.0f;      // 飛行モードの加速
-	public float Friction = 8.0f;          // 飛行モードの減速（滑る強さ）
-	public float Gravity = 15.0f;          // 落下時の重力の強さ
-	public float JumpForce = 6.0f;          // 歩行時のジャンプ力
+	public float Acceleration = 2.0f;
+	public float Friction = 8.0f;
+	public float Gravity = 15.0f;
+	public float JumpForce = 6.0f;
 
 	[ExportGroup("Mouse Settings")]
 	public float MouseSensitivity = 0.002f;
 
-	// 飛行モードのフラグ (マイクラのフライト状態)
-	private bool _isFlying = true;
+	[ExportGroup("Creature Detection")]
+	[Export] public float DetectionDistance = 20.0f;
+	[Export] public string CreatureGroupName = "creatures";
 
-	// スペースキーのダブルタップ判定用変数
+	[ExportGroup("Tracking Camera")]
+	[Export] public Vector3 FollowOffsetLocal = new(0.0f, 1.5f, 2.0f);
+	[Export] public float FollowPositionLerpSpeed = 6.0f;
+	[Export] public float FollowRotationLerpSpeed = 8.0f;
+
+	private bool _isFlying = true;
+	private bool _isTracking = false;
 	private float _spaceTapTimer = 0.0f;
-	private const float DoubleTapDelay = 0.3f; 
+	private const float DoubleTapDelay = 0.3f;
 
 	private float _rotX = 0.0f;
 	private float _rotY = 0.0f;
 	private Vector3 _currentVelocity = Vector3.Zero;
 
 	private CharacterBody3D _parentBody;
+	private Node3D _trackingTarget;
+	private Node _currentHighlighted;
 
 	public override void _Ready()
 	{
@@ -44,12 +56,24 @@ public partial class CameraController : Camera3D
 	{
 		if (@event.IsActionPressed("ui_cancel"))
 		{
-			Input.MouseMode = Input.MouseMode == Input.MouseModeEnum.Captured ? 
-				Input.MouseModeEnum.Visible : Input.MouseModeEnum.Captured;
+			Input.MouseMode = Input.MouseMode == Input.MouseModeEnum.Captured
+				? Input.MouseModeEnum.Visible
+				: Input.MouseModeEnum.Captured;
 		}
 
-		// マウスによる視点移動
-		if (Input.MouseMode == Input.MouseModeEnum.Captured && @event is InputEventMouseMotion mouseMotion)
+		if (@event is InputEventMouseButton mouseButton && mouseButton.Pressed)
+		{
+			if (mouseButton.ButtonIndex == MouseButton.Left && !_isTracking)
+			{
+				TryZoomInFromCrosshair();
+			}
+			else if (mouseButton.ButtonIndex == MouseButton.Right && _isTracking)
+			{
+				ZoomOut();
+			}
+		}
+
+		if (Input.MouseMode == Input.MouseModeEnum.Captured && !_isTracking && @event is InputEventMouseMotion mouseMotion)
 		{
 			_rotY -= mouseMotion.Relative.X * MouseSensitivity;
 			_rotX -= mouseMotion.Relative.Y * MouseSensitivity;
@@ -57,15 +81,14 @@ public partial class CameraController : Camera3D
 			GlobalRotation = new Vector3(_rotX, _rotY, 0);
 		}
 
-		// スペースキーの2回押し（ダブルタップ）検知で飛行切替
-		if (@event.IsActionPressed("move_up"))
+		if (!_isTracking && @event.IsActionPressed("move_up"))
 		{
 			if (_spaceTapTimer > 0.0f)
 			{
 				_isFlying = !_isFlying;
-				_currentVelocity = Vector3.Zero; 
+				_currentVelocity = Vector3.Zero;
 				GD.Print(_isFlying ? "飛行モード：ON" : "飛行モード：OFF（落下します）");
-				_spaceTapTimer = 0.0f; 
+				_spaceTapTimer = 0.0f;
 			}
 			else
 			{
@@ -80,16 +103,24 @@ public partial class CameraController : Camera3D
 		{
 			_spaceTapTimer -= (float)delta;
 		}
+
+		UpdateCenterRayHighlight();
 	}
 
 	public override void _PhysicsProcess(double delta)
 	{
-		if (Input.MouseMode != Input.MouseModeEnum.Captured || _parentBody == null) return;
+		if (Input.MouseMode != Input.MouseModeEnum.Captured || _parentBody == null)
+		{
+			return;
+		}
+
+		if (_isTracking)
+		{
+			UpdateTrackingCamera((float)delta);
+			return;
+		}
 
 		float fDelta = (float)delta;
-		Vector3 targetVelocity = Vector3.Zero;
-
-		// 1. 水平方向（WASD）の入力方向ベクトル計算
 		Vector3 horizontalTargetDir = Vector3.Zero;
 		Vector3 forward = -GlobalTransform.Basis.Z;
 		forward.Y = 0;
@@ -99,28 +130,24 @@ public partial class CameraController : Camera3D
 		right.Y = 0;
 		if (right.Length() > 0) right = right.Normalized();
 
-		if (Input.IsActionPressed("move_forward"))  horizontalTargetDir += forward;
+		if (Input.IsActionPressed("move_forward")) horizontalTargetDir += forward;
 		if (Input.IsActionPressed("move_backward")) horizontalTargetDir -= forward;
-		if (Input.IsActionPressed("move_left"))     horizontalTargetDir -= right;
-		if (Input.IsActionPressed("move_right"))    horizontalTargetDir += right;
+		if (Input.IsActionPressed("move_left")) horizontalTargetDir -= right;
+		if (Input.IsActionPressed("move_right")) horizontalTargetDir += right;
 
 		if (horizontalTargetDir.Length() > 0)
 		{
 			horizontalTargetDir = horizontalTargetDir.Normalized();
 		}
 
-		// 2. モード別の移動ロジック
 		if (_isFlying)
 		{
-			// 【🛸 飛行モード：心地よい慣性移動】
 			Vector3 verticalTargetDir = Vector3.Zero;
-			if (Input.IsActionPressed("move_up"))   verticalTargetDir += Vector3.Up;
+			if (Input.IsActionPressed("move_up")) verticalTargetDir += Vector3.Up;
 			if (Input.IsActionPressed("move_down")) verticalTargetDir += Vector3.Down;
 
-			// 水平と垂直の目標速度を合成
 			Vector3 targetVec = (horizontalTargetDir * MaxMoveSpeed) + (verticalTargetDir.Normalized() * MaxMoveSpeed);
 
-			// 目標速度に向かって滑らかに補間（スーッと滑る）
 			if (targetVec.Length() > 0)
 				_currentVelocity = _currentVelocity.Lerp(targetVec, Acceleration * fDelta);
 			else
@@ -128,9 +155,6 @@ public partial class CameraController : Camera3D
 		}
 		else
 		{
-			// 【🚶 歩行モード：慣性なしのキビキビ移動 ＆ 重力】
-			
-			// 入力がある時は最大速度、ない時はピタッと0にする（慣性を完全に排除）
 			if (horizontalTargetDir.Length() > 0)
 			{
 				_currentVelocity.X = horizontalTargetDir.X * MaxWalkSpeed;
@@ -142,7 +166,6 @@ public partial class CameraController : Camera3D
 				_currentVelocity.Z = 0;
 			}
 
-			// 垂直方向：地面についていないなら重力落下
 			if (!_parentBody.IsOnFloor())
 			{
 				_currentVelocity.Y -= Gravity * fDelta;
@@ -150,20 +173,144 @@ public partial class CameraController : Camera3D
 			else
 			{
 				_currentVelocity.Y = 0;
-
-				// 地面にいる時にスペースを「1回」押したらジャンプ
 				if (Input.IsActionJustPressed("move_up"))
 				{
-					_currentVelocity.Y = JumpForce; // ジャンプ力
+					_currentVelocity.Y = JumpForce;
 				}
 			}
 		}
 
-		// 3. 速度を親に適用して動かす
 		_parentBody.Velocity = _currentVelocity;
 		_parentBody.MoveAndSlide();
-
-		// 物理演算の衝突結果（壁衝突など）を速度にフィードバック
 		_currentVelocity = _parentBody.Velocity;
+	}
+
+	public void ZoomInToCreature(Node3D target)
+	{
+		if (target == null || !IsInstanceValid(target))
+		{
+			return;
+		}
+
+		_trackingTarget = target;
+		_isTracking = true;
+		_parentBody.Velocity = Vector3.Zero;
+		_currentVelocity = Vector3.Zero;
+		SetHighlightTarget(target);
+	}
+
+	public void ZoomOut()
+	{
+		_isTracking = false;
+		_trackingTarget = null;
+		_parentBody.Velocity = Vector3.Zero;
+		_currentVelocity = Vector3.Zero;
+		Input.MouseMode = Input.MouseModeEnum.Captured;
+	}
+
+	private void TryZoomInFromCrosshair()
+	{
+		Node3D target = GetCreatureUnderCrosshair();
+		if (target != null)
+		{
+			ZoomInToCreature(target);
+		}
+	}
+
+	private void UpdateTrackingCamera(float delta)
+	{
+		if (_trackingTarget == null || !IsInstanceValid(_trackingTarget))
+		{
+			ZoomOut();
+			return;
+		}
+
+		Vector3 desiredPosition = _trackingTarget.GlobalPosition
+			+ (_trackingTarget.GlobalTransform.Basis * FollowOffsetLocal);
+
+		GlobalPosition = GlobalPosition.Lerp(desiredPosition, FollowPositionLerpSpeed * delta);
+
+		Vector3 toTarget = (_trackingTarget.GlobalPosition - GlobalPosition).Normalized();
+		if (toTarget.LengthSquared() > 0.0001f)
+		{
+			Basis desiredBasis = Basis.LookingAt(toTarget, Vector3.Up);
+			Quaternion currentQ = GlobalTransform.Basis.GetRotationQuaternion();
+			Quaternion targetQ = desiredBasis.GetRotationQuaternion();
+			Quaternion newQ = currentQ.Slerp(targetQ, FollowRotationLerpSpeed * delta);
+			GlobalTransform = new Transform3D(new Basis(newQ), GlobalPosition);
+
+			Vector3 euler = GlobalRotation;
+			_rotX = euler.X;
+			_rotY = euler.Y;
+		}
+	}
+
+	private void UpdateCenterRayHighlight()
+	{
+		Node3D creature = GetCreatureUnderCrosshair();
+		SetHighlightTarget(creature);
+	}
+
+	private Node3D GetCreatureUnderCrosshair()
+	{
+		if (!IsInsideTree() || GetWorld3D() == null)
+		{
+			return null;
+		}
+
+		Vector3 from = GlobalTransform.Origin;
+		Vector3 to = from + (-GlobalTransform.Basis.Z * DetectionDistance);
+		PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(from, to);
+		query.CollideWithAreas = true;
+		query.CollideWithBodies = true;
+		query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
+
+		var spaceState = GetWorld3D().DirectSpaceState;
+		var hit = spaceState.IntersectRay(query);
+		if (hit.Count == 0)
+		{
+			return null;
+		}
+
+		Node collider = hit["collider"].As<Node>();
+		return ResolveCreatureNode(collider);
+	}
+
+	private Node3D ResolveCreatureNode(Node collider)
+	{
+		Node current = collider;
+		while (current != null)
+		{
+			if (current is Node3D node3d &&
+				(current.IsInGroup(CreatureGroupName) || current.HasMethod("ShowHighlight")))
+			{
+				return node3d;
+			}
+			current = current.GetParent();
+		}
+
+		return null;
+	}
+
+	private void SetHighlightTarget(Node newTarget)
+	{
+		if (_currentHighlighted == newTarget)
+		{
+			return;
+		}
+
+		if (_currentHighlighted != null && IsInstanceValid(_currentHighlighted) && _currentHighlighted.HasMethod("ShowHighlight"))
+		{
+			_currentHighlighted.Call("ShowHighlight", false);
+		}
+
+		_currentHighlighted = newTarget;
+
+		if (_currentHighlighted != null && IsInstanceValid(_currentHighlighted) && _currentHighlighted.HasMethod("ShowHighlight"))
+		{
+			_currentHighlighted.Call("ShowHighlight", true);
+		}
+
+		EmitSignal(SignalName.CrosshairHighlightChanged, _currentHighlighted != null);
 	}
 }
