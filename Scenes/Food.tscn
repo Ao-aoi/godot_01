@@ -1,0 +1,29 @@
+[gd_scene format=3]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_1"]
+radius = 0.18
+
+[sub_resource type="SphereMesh" id="SphereMesh_1"]
+radius = 0.18
+height = 0.36
+radial_segments = 16
+rings = 8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1"]
+albedo_color = Color(0.92, 0.36, 0.18, 1)
+roughness = 0.35
+metallic = 0.0
+
+[node name="Food" type="RigidBody3D"]
+mass = 0.12
+gravity_scale = 1.2
+linear_damp = 0.15
+angular_damp = 0.35
+continuous_cd = 1
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("SphereShape3D_1")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_1")
+material_override = SubResource("StandardMaterial3D_1")
