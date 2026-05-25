@@ -3,7 +3,63 @@
 [ext_resource type="Script" uid="uid://tr4qbf12fv7e" path="res://Scripts/AI/CreatureAgent.cs" id="1"]
 [ext_resource type="PackedScene" uid="uid://67h1vao3is0k" path="res://Models/creature_01.glb" id="2_01bph"]
 
-[node name="Creature2" type="RigidBody3D" unique_id=844923627]
+[sub_resource type="SphereShape3D" id="SphereShape3D_01bph"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_01bph"]
+
+[node name="Creature" type="RigidBody3D" unique_id=844923627 groups=["creatures"]]
 script = ExtResource("1")
 
 [node name="creature_01" parent="." unique_id=1531096126 instance=ExtResource("2_01bph")]
+
+[node name="Root" type="CollisionShape3D" parent="." unique_id=612149648]
+transform = Transform3D(0.78, 0, 0, 0, 0.78, 0, 0, 0, 0.78, 0, 0.5575987, 0)
+shape = SubResource("SphereShape3D_01bph")
+
+[node name="RigidBody_Leg_L" type="RigidBody3D" parent="." unique_id=1883045503]
+transform = Transform3D(0.9739443, -0.22678733, 0, 0.22678733, 0.9739443, 0, 0, 0, 1, 0.14427185, 0.20645805, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="RigidBody_Leg_L" unique_id=610523110]
+transform = Transform3D(0.214, 0, 0, 0, 0.214, 0, 0, 0, 0.214, 0, 0, 0)
+shape = SubResource("CapsuleShape3D_01bph")
+
+[node name="RigidBody_Leg_R" type="RigidBody3D" parent="." unique_id=365846037]
+transform = Transform3D(0.9711093, 0.23863515, 0, -0.23863515, 0.9711093, 0, 0, 0, 1, -0.15173423, 0.20645805, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="RigidBody_Leg_R" unique_id=546479994]
+transform = Transform3D(0.214, 0, 0, 0, 0.214, 0, 0, 0, 0.214, 0, 0, 0)
+shape = SubResource("CapsuleShape3D_01bph")
+
+[node name="RigidBody_Arm_R" type="RigidBody3D" parent="." unique_id=356273898]
+transform = Transform3D(-0.29098606, 0.9567272, 0, -0.9567272, -0.29098606, 0, 0, 0, 1, -0.4511271, 0.672102, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="RigidBody_Arm_R" unique_id=374381704]
+transform = Transform3D(0.26900002, 0, 0, 0, 0.26900002, 0, 0, 0, 0.269, -0.01608044, 0.05287057, 0)
+shape = SubResource("CapsuleShape3D_01bph")
+
+[node name="RigidBody_Arm_L" type="RigidBody3D" parent="." unique_id=1088528819]
+transform = Transform3D(0.19941926, 0.9799143, 0, -0.9799143, 0.19941926, 0, 0, 0, 1, 0.32989126, 0.672102, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="RigidBody_Arm_L" unique_id=12502061]
+transform = Transform3D(0.26900002, 0, 0, 0, 0.26900002, 0, 0, 0, 0.269, -0.01608044, 0.05287057, 0)
+shape = SubResource("CapsuleShape3D_01bph")
+
+[node name="Generic6DOFJoint3D" type="Generic6DOFJoint3D" parent="." unique_id=1473997054]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.0625391, 0.26021186, 0)
+node_a = NodePath("..")
+node_b = NodePath("../RigidBody_Leg_L")
+
+[node name="Generic6DOFJoint3D2" type="Generic6DOFJoint3D" parent="." unique_id=112982156]
+transform = Transform3D(0.10547447, 0.027098902, 0, -0.027098902, 0.10547447, 0, 0, 0, 0.108900025, -0.15353999, 0.2693087, 0)
+node_a = NodePath("..")
+node_b = NodePath("../RigidBody_Leg_R")
+
+[node name="Generic6DOFJoint3D3" type="Generic6DOFJoint3D" parent="." unique_id=1112347627]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, -0.38416815, 0.588474, 0)
+node_a = NodePath("..")
+node_b = NodePath("../RigidBody_Arm_R")
+
+[node name="Generic6DOFJoint3D4" type="Generic6DOFJoint3D" parent="." unique_id=577256626]
+transform = Transform3D(0.10547447, 0.027098902, 0, -0.027098902, 0.10547447, 0, 0, 0, 0.108900025, 0.3202404, 0.64833295, 0)
+node_a = NodePath("..")
+node_b = NodePath("../RigidBody_Arm_L")
