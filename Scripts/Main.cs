@@ -592,6 +592,7 @@ public partial class Main : Node3D
 		_generation++;
 		GD.Print($"--- 世代交代: Generation {_generation} ---");
 		await ToSignal(GetTree().CreateTimer(GenerationRespawnDelay), SceneTreeTimer.SignalName.Timeout);
+		ClearDeadCreatures();
 		SpawnGeneration();
 		_isGenerationTransitioning = false;
 	}
@@ -715,8 +716,15 @@ public partial class Main : Node3D
 		creatureInstance.GlobalPosition = _spawnPosition + randomOffset;
 		creatureInstance.Configure(meta.Genome, meta.Traits, _generation);
 		meta.Agent = creatureInstance;
+		creatureInstance.Died += OnCreatureDied;
 		_aliveCreatures.Add(creatureInstance);
 		_killedByPlayer[creatureInstance] = false;
+		UpdateCreatureUI();
+	}
+
+	private void OnCreatureDied(CreatureAgent creature)
+	{
+		HandleCreatureDeath(creature, false);
 		UpdateCreatureUI();
 	}
 
@@ -727,6 +735,7 @@ public partial class Main : Node3D
 			return;
 		}
 
+		_aliveCreatures.Remove(creature);
 		_killedByPlayer[creature] = killedByPlayer;
 		if (_creatureMeta.TryGetValue(creature, out CreatureMeta meta))
 		{
@@ -737,8 +746,22 @@ public partial class Main : Node3D
 				meta.FoodsEaten = meta.Agent.FoodsEaten;
 			}
 		}
+	}
 
-		creature.QueueFree();
+	private void ClearDeadCreatures()
+	{
+		foreach (RigidBody3D creature in _creatureMeta.Keys.ToList())
+		{
+			if (!IsInstanceValid(creature))
+			{
+				continue;
+			}
+
+			if (_creatureMeta.TryGetValue(creature, out CreatureMeta meta) && !meta.Alive)
+			{
+				creature.QueueFree();
+			}
+		}
 	}
 
 	private string GenerateCreatureName(List<string> traits)

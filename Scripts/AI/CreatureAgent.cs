@@ -3,6 +3,8 @@ using System.Collections.Generic;
 
 public partial class CreatureAgent : RigidBody3D
 {
+	[Signal] public delegate void DiedEventHandler(CreatureAgent creature);
+
 	[Export] public string FoodGroupName = "food";
 	[Export] public float BaseSightRange = 14.0f;
 	[Export] public float BaseSmellRange = 26.0f;
@@ -16,9 +18,18 @@ public partial class CreatureAgent : RigidBody3D
 	[Export] public float GroundRewardPerSecond = 0.05f;
 	[Export] public float FoodReward = 12.0f;
 	[Export] public float FallingPenalty = 4.0f;
+	[Export] public float MaxHealth = 100.0f;
+	[Export] public float FallDamageSafeSpeed = 11.0f;
+	[Export] public float FallDamagePerSpeed = 4.2f;
+	[Export] public float StarvationGracePeriod = 12.0f;
+	[Export] public float StarvationDamagePerSecond = 3.5f;
+	[Export] public float HealthBarHeight = 1.35f;
+	[Export] public Vector2 HealthBarSize = new Vector2(140.0f, 18.0f);
 
 	public float Fitness => _fitness;
 	public int FoodsEaten => _foodsEaten;
+	public float Health => _health;
+	public bool IsDead => _isDead;
 
 	private CreatureGenome _genome = CreatureGenome.Randomize();
 	private CreatureBrain _brain;
@@ -26,9 +37,17 @@ public partial class CreatureAgent : RigidBody3D
 	private CreatureTraitModifiers _modifiers = CreatureTraitModifiers.Default;
 	private float _fitness;
 	private int _foodsEaten;
+	private float _health;
 	private float _lastTargetDistance = -1.0f;
 	private float _lastUprightScore = 1.0f;
 	private bool _configured;
+	private bool _isDead;
+	private bool _wasGrounded;
+	private float _peakFallSpeed;
+	private float _timeSinceLastMeal;
+	private float _damagePopupAccumulator;
+	private SubViewport _healthViewport;
+	private ColorRect _healthFill;
 
 	public override void _Ready()
 	{
@@ -37,6 +56,11 @@ public partial class CreatureAgent : RigidBody3D
 		CanSleep = false;
 		LinearDamp = 0.18f;
 		AngularDamp = 0.45f;
+		_health = MaxHealth;
+		_timeSinceLastMeal = 0.0f;
+		_damagePopupAccumulator = 0.0f;
+		SetupHealthBar();
+		UpdateHealthBar();
 	}
 
 	public void Configure(CreatureGenome genome, IReadOnlyList<string> traits, int generationIndex)
@@ -53,6 +77,11 @@ public partial class CreatureAgent : RigidBody3D
 
 	public override void _PhysicsProcess(double delta)
 	{
+		if (_isDead)
+		{
+			return;
+		}
+
 		if (_brain == null)
 		{
 			_brain = new CreatureBrain(_genome);
@@ -64,6 +93,9 @@ public partial class CreatureAgent : RigidBody3D
 		ApplyActions(outputs, (float)delta);
 		UpdateFitness(inputs, (float)delta);
 		TryEatNearbyFood();
+		ApplyStarvation((float)delta);
+		HandleFallDamage(_wasGrounded);
+		UpdateHealthBar();
 	}
 
 	private float[] BuildInputs()
@@ -174,6 +206,11 @@ public partial class CreatureAgent : RigidBody3D
 
 	private void ApplyActions(float[] outputs, float delta)
 	{
+		if (_isDead)
+		{
+			return;
+		}
+
 		Vector3 localMove = new Vector3(outputs[0], 0.0f, outputs[1]);
 		if (localMove.Length() > 1.0f)
 		{
@@ -229,6 +266,11 @@ public partial class CreatureAgent : RigidBody3D
 
 	private void TryEatNearbyFood()
 	{
+		if (_isDead)
+		{
+			return;
+		}
+
 		float eatRadiusSquared = EatRadius * EatRadius;
 		foreach (Node node in GetTree().GetNodesInGroup(FoodGroupName))
 		{
@@ -255,7 +297,169 @@ public partial class CreatureAgent : RigidBody3D
 
 		_foodsEaten++;
 		_fitness += FoodReward;
+		_timeSinceLastMeal = 0.0f;
 		food.QueueFree();
+	}
+
+	private void ApplyStarvation(float delta)
+	{
+		_timeSinceLastMeal += delta;
+		if (_timeSinceLastMeal <= StarvationGracePeriod)
+		{
+			return;
+		}
+
+		ApplyDamage(StarvationDamagePerSecond * delta);
+	}
+
+	private void HandleFallDamage(bool wasGrounded)
+	{
+		bool groundedNow = IsGrounded();
+		float fallingSpeed = Mathf.Max(0.0f, -LinearVelocity.Y);
+
+		if (!groundedNow)
+		{
+			_peakFallSpeed = Mathf.Max(_peakFallSpeed, fallingSpeed);
+		}
+		else if (!wasGrounded && _peakFallSpeed > FallDamageSafeSpeed)
+		{
+			float damage = (_peakFallSpeed - FallDamageSafeSpeed) * FallDamagePerSpeed;
+			ApplyDamage(damage);
+			_peakFallSpeed = 0.0f;
+		}
+		else if (groundedNow)
+		{
+			_peakFallSpeed = 0.0f;
+		}
+
+		_wasGrounded = groundedNow;
+	}
+
+	private void ApplyDamage(float amount)
+	{
+		if (_isDead || amount <= 0.0f)
+		{
+			return;
+		}
+
+			_damagePopupAccumulator += amount;
+			EmitDamagePopup(false);
+		_health = Mathf.Max(0.0f, _health - amount);
+		if (_health <= 0.0f)
+		{
+				EmitDamagePopup(true);
+			Die();
+		}
+	}
+
+		private void EmitDamagePopup(bool force)
+		{
+			int popupAmount = Mathf.FloorToInt(_damagePopupAccumulator);
+			if (force && popupAmount <= 0 && _damagePopupAccumulator > 0.0f)
+			{
+				popupAmount = Mathf.Max(1, Mathf.RoundToInt(_damagePopupAccumulator));
+			}
+
+			if (popupAmount <= 0)
+			{
+				return;
+			}
+
+			_damagePopupAccumulator -= popupAmount;
+			CreateDamagePopup(popupAmount);
+		}
+
+		private void CreateDamagePopup(int amount)
+		{
+			Label3D damageLabel = new Label3D();
+			damageLabel.Text = $"-{amount}";
+			damageLabel.Modulate = new Color(1.0f, 0.22f, 0.22f, 1.0f);
+			damageLabel.Position = new Vector3(0.0f, HealthBarHeight + 0.55f, 0.0f);
+			damageLabel.Scale = Vector3.One * 0.22f;
+			damageLabel.Set("billboard", 1);
+			AddChild(damageLabel);
+
+			Tween tween = CreateTween();
+			tween.SetParallel(true);
+			tween.TweenProperty(damageLabel, "position", damageLabel.Position + new Vector3(0.0f, 0.55f, 0.0f), 0.45f);
+			tween.TweenProperty(damageLabel, "modulate:a", 0.0f, 0.45f);
+			tween.TweenCallback(Callable.From(damageLabel.QueueFree));
+		}
+
+	private void Die()
+	{
+		if (_isDead)
+		{
+			return;
+		}
+
+		_isDead = true;
+		LinearVelocity = Vector3.Zero;
+		AngularVelocity = Vector3.Zero;
+		Freeze = true;
+		UpdateHealthBar();
+		EmitSignal(SignalName.Died, this);
+	}
+
+	private void SetupHealthBar()
+	{
+		_healthViewport = new SubViewport();
+		_healthViewport.Disable3D = true;
+		_healthViewport.TransparentBg = true;
+		_healthViewport.RenderTargetUpdateMode = SubViewport.UpdateMode.Always;
+		_healthViewport.Size = new Vector2I((int)HealthBarSize.X, (int)HealthBarSize.Y);
+		AddChild(_healthViewport);
+
+		Control root = new Control();
+		root.Size = HealthBarSize;
+		_healthViewport.AddChild(root);
+
+		ColorRect background = new ColorRect();
+		background.Color = new Color(0.08f, 0.08f, 0.08f, 0.9f);
+		background.Position = Vector2.Zero;
+		background.Size = HealthBarSize;
+		root.AddChild(background);
+
+		_healthFill = new ColorRect();
+		_healthFill.Color = new Color(0.15f, 0.85f, 0.22f, 0.95f);
+		_healthFill.Position = new Vector2(2.0f, 2.0f);
+		_healthFill.Size = new Vector2(Mathf.Max(1.0f, HealthBarSize.X - 4.0f), Mathf.Max(1.0f, HealthBarSize.Y - 4.0f));
+		root.AddChild(_healthFill);
+
+		Sprite3D healthSprite = new Sprite3D();
+		healthSprite.Texture = _healthViewport.GetTexture();
+		healthSprite.Set("billboard", 1);
+		healthSprite.Set("fixed_size", true);
+		healthSprite.PixelSize = 0.0025f;
+		healthSprite.Scale = Vector3.One * 0.25f;
+		healthSprite.Position = new Vector3(0.0f, HealthBarHeight, 0.0f);
+		AddChild(healthSprite);
+	}
+
+	private void UpdateHealthBar()
+	{
+		if (_healthFill == null)
+		{
+			return;
+		}
+
+		float ratio = MaxHealth <= 0.0f ? 0.0f : Mathf.Clamp(_health / MaxHealth, 0.0f, 1.0f);
+		float usableWidth = Mathf.Max(1.0f, HealthBarSize.X - 4.0f);
+		float usableHeight = Mathf.Max(1.0f, HealthBarSize.Y - 4.0f);
+		_healthFill.Size = new Vector2(usableWidth * ratio, usableHeight);
+
+		if (ratio > 0.5f)
+		{
+			_healthFill.Color = new Color(0.15f, 0.85f, 0.22f, 0.95f);
+		}
+		else if (ratio > 0.25f)
+		{
+			_healthFill.Color = new Color(0.95f, 0.68f, 0.16f, 0.95f);
+		}
+		else
+		{
+			_healthFill.Color = new Color(0.92f, 0.18f, 0.18f, 0.95f);
+		}
 	}
 
 	private bool IsGrounded()
