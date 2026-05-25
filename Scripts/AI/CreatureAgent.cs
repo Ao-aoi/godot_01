@@ -32,6 +32,8 @@ public partial class CreatureAgent : RigidBody3D
 	[Export] public float StarvationDamagePerSecond = 3.5f;
 	[Export] public float HealthBarHeight = 1.35f;
 	[Export] public Vector2 HealthBarSize = new Vector2(140.0f, 18.0f);
+	[Export] public bool UseRandomMotorSignals = false;
+	[Export] public float MotorSignalScale = 9.5f;
 
 	public float Fitness => _fitness;
 	public int FoodsEaten => _foodsEaten;
@@ -57,6 +59,7 @@ public partial class CreatureAgent : RigidBody3D
 	private string _deathCauseLabel = "不明";
 	private SubViewport _healthViewport;
 	private ColorRect _healthFill;
+	private readonly List<HingeJoint3D> _motorJoints = new();
 
 	public override void _Ready()
 	{
@@ -68,6 +71,7 @@ public partial class CreatureAgent : RigidBody3D
 		_health = MaxHealth;
 		_timeSinceLastMeal = 0.0f;
 		SetupHealthBar();
+		CacheMotorJoints();
 		UpdateHealthBar();
 	}
 
@@ -99,6 +103,15 @@ public partial class CreatureAgent : RigidBody3D
 
 		float[] inputs = BuildInputs();
 		float[] outputs = _brain.Evaluate(inputs);
+
+		if (UseRandomMotorSignals)
+		{
+			ApplyRandomJointMotorSignals();
+		}
+		else
+		{
+			ApplyBrainJointMotorSignals(outputs);
+		}
 
 		ApplyActions(outputs, (float)delta);
 		UpdateFitness(inputs, (float)delta);
@@ -141,6 +154,42 @@ public partial class CreatureAgent : RigidBody3D
 		inputs[15] = _configured ? 1.0f : 0.0f;
 
 		return inputs;
+	}
+
+	private void CacheMotorJoints()
+	{
+		_motorJoints.Clear();
+		foreach (Node child in GetChildren())
+		{
+			if (child is HingeJoint3D hinge)
+			{
+				hinge.SetFlag(HingeJoint3D.Flag.UseMotor, true);
+				_motorJoints.Add(hinge);
+			}
+		}
+	}
+
+	private void ApplyRandomJointMotorSignals()
+	{
+		for (int i = 0; i < _motorJoints.Count; i++)
+		{
+			float velocity = (float)GD.RandRange(-MotorSignalScale, MotorSignalScale);
+			_motorJoints[i].SetParam(HingeJoint3D.Param.MotorTargetVelocity, velocity);
+		}
+	}
+
+	private void ApplyBrainJointMotorSignals(float[] outputs)
+	{
+		if (_motorJoints.Count == 0)
+		{
+			return;
+		}
+
+		for (int i = 0; i < _motorJoints.Count; i++)
+		{
+			float signal = outputs[i % outputs.Length];
+			_motorJoints[i].SetParam(HingeJoint3D.Param.MotorTargetVelocity, signal * MotorSignalScale);
+		}
 	}
 
 	private void FindFoodSignal(out Vector3 bestDirection, out float bestDistance, out float visibleSignal, out float smellSignal)
@@ -309,6 +358,7 @@ public partial class CreatureAgent : RigidBody3D
 		GD.Print($"{DisplayName} がエサを食べた: {food.GlobalPosition}");
 		_fitness += FoodReward;
 		_timeSinceLastMeal = 0.0f;
+		_health = MaxHealth;
 		food.QueueFree();
 	}
 
