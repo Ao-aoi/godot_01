@@ -33,11 +33,16 @@ public partial class Main : Node3D
 	// フェーズ2用: 個体に関するメタデータ管理
 	private class CreatureMeta
 	{
+		public string DisplayName = string.Empty;
 		public List<string> Traits = new();
 		public bool Alive = true;
 	}
 	private readonly System.Collections.Generic.Dictionary<RigidBody3D, CreatureMeta> _creatureMeta = new();
 
+	// ホバー/ハイライト用
+	private RigidBody3D _hoveredCreature = null;
+	private MeshInstance3D _hoveredMesh = null;
+	private StandardMaterial3D _highlightMaterial = null;
 	private CharacterBody3D _player;
 	private Camera3D _camera;
 	private MeshInstance3D _predictionLine;
@@ -69,6 +74,7 @@ public partial class Main : Node3D
 	public override void _Process(double delta)
 	{
 		UpdatePredictionLine((float)delta);
+		UpdateHoverFromMouse();
 
 		for (int i = _aliveCreatures.Count - 1; i >= 0; i--)
 		{
@@ -115,7 +121,15 @@ public partial class Main : Node3D
 		{
 			if (mouseButton.Pressed)
 			{
-				_isFoodAiming = true;
+				// ホバーしている個体があればそれを選択（ズーム開始）、なければエサ狙い開始
+				if (_hoveredCreature != null)
+				{
+					SelectCreature(_hoveredCreature);
+				}
+				else
+				{
+					_isFoodAiming = true;
+				}
 			}
 			else if (_isFoodAiming)
 			{
@@ -146,102 +160,99 @@ public partial class Main : Node3D
 			}
 		}
 
-			if (@event is InputEventMouseButton wheelButton)
-			{
-				if (wheelButton.ButtonIndex == MouseButton.WheelUp)
-				{
-					_foodSpawnDistance = Mathf.Clamp(_foodSpawnDistance + FoodSpawnWheelStep, MinFoodSpawnDistance, MaxFoodSpawnDistance);
-				}
-				else if (wheelButton.ButtonIndex == MouseButton.WheelDown)
-				{
-					_foodSpawnDistance = Mathf.Clamp(_foodSpawnDistance - FoodSpawnWheelStep, MinFoodSpawnDistance, MaxFoodSpawnDistance);
-				}
-			}
-
-			if (_isFoodAiming && @event is InputEventMouseMotion mouseMotion)
-			{
-				_foodSpawnDistance = Mathf.Clamp(
-					_foodSpawnDistance + (mouseMotion.Relative.Y * FoodSpawnAdjustSensitivity),
-					MinFoodSpawnDistance,
-					MaxFoodSpawnDistance
-				);
-			}
-
-		}
-
-		private void SelectCreature(RigidBody3D creature)
+		if (@event is InputEventMouseButton wheelButton)
 		{
-			if (_camera == null) return;
-			// CameraController の StartFollow メソッドを呼ぶ
-			if (_camera is CameraController cc)
+			if (wheelButton.ButtonIndex == MouseButton.WheelUp)
 			{
-				cc.StartFollow(creature);
+				_foodSpawnDistance = Mathf.Clamp(_foodSpawnDistance + FoodSpawnWheelStep, MinFoodSpawnDistance, MaxFoodSpawnDistance);
+			}
+			else if (wheelButton.ButtonIndex == MouseButton.WheelDown)
+			{
+				_foodSpawnDistance = Mathf.Clamp(_foodSpawnDistance - FoodSpawnWheelStep, MinFoodSpawnDistance, MaxFoodSpawnDistance);
 			}
 		}
 
-		// ---- フェーズ2: 簡易UIの生成と更新 ----
-		private CanvasLayer _uiLayer;
-		private VBoxContainer _aliveList;
-		private VBoxContainer _deadList;
-		private readonly System.Collections.Generic.Dictionary<RigidBody3D, Button> _creatureButtons = new();
-
-		private void SetupCreatureUI()
+		if (_isFoodAiming && @event is InputEventMouseMotion mouseMotion)
 		{
-			_uiLayer = new CanvasLayer();
-			AddChild(_uiLayer);
-
-			Panel panel = new Panel();
-			// 位置やサイズはエディタ側で調整するのでここでは最低限の構築のみ行う
-			_uiLayer.AddChild(panel);
-
-			VBoxContainer root = new VBoxContainer();
-			// layout settings can be adjusted in editor if needed
-			panel.AddChild(root);
-
-			Label aliveLabel = new Label();
-			aliveLabel.Text = "生存中";
-			root.AddChild(aliveLabel);
-
-			_aliveList = new VBoxContainer();
-			root.AddChild(_aliveList);
-
-			Label deadLabel = new Label();
-			deadLabel.Text = "死亡済み";
-			root.AddChild(deadLabel);
-
-			_deadList = new VBoxContainer();
-			root.AddChild(_deadList);
+			_foodSpawnDistance = Mathf.Clamp(
+				_foodSpawnDistance + (mouseMotion.Relative.Y * FoodSpawnAdjustSensitivity),
+				MinFoodSpawnDistance,
+				MaxFoodSpawnDistance
+			);
 		}
+	}
 
-		private void UpdateCreatureUI()
+	private void SelectCreature(RigidBody3D creature)
+	{
+		if (_camera == null) return;
+		if (_camera is CameraController cc)
 		{
-			if (_uiLayer == null) return;
+			cc.StartFollow(creature);
+		}
+	}
 
-			// クリア
-			ClearContainerChildren(_aliveList);
-			ClearContainerChildren(_deadList);
-			_creatureButtons.Clear();
+	// ---- フェーズ2: 簡易UIの生成と更新 ----
+	private CanvasLayer _uiLayer;
+	private VBoxContainer _aliveList;
+	private VBoxContainer _deadList;
+	private readonly System.Collections.Generic.Dictionary<RigidBody3D, Button> _creatureButtons = new();
 
-			// 生存中リスト
-			foreach (var kv in _creatureMeta)
+	private void SetupCreatureUI()
+	{
+		_uiLayer = new CanvasLayer();
+		AddChild(_uiLayer);
+
+		Panel panel = new Panel();
+		// 位置やサイズはエディタ側で調整するのでここでは最低限の構築のみ行う
+		_uiLayer.AddChild(panel);
+
+		VBoxContainer root = new VBoxContainer();
+		// layout settings can be adjusted in editor if needed
+		panel.AddChild(root);
+
+		Label aliveLabel = new Label();
+		aliveLabel.Text = "生存中";
+		root.AddChild(aliveLabel);
+
+		_aliveList = new VBoxContainer();
+		root.AddChild(_aliveList);
+
+		Label deadLabel = new Label();
+		deadLabel.Text = "死亡済み";
+		root.AddChild(deadLabel);
+
+		_deadList = new VBoxContainer();
+		root.AddChild(_deadList);
+	}
+
+	private void UpdateCreatureUI()
+	{
+		if (_uiLayer == null) return;
+
+		// クリア
+		ClearContainerChildren(_aliveList);
+		ClearContainerChildren(_deadList);
+		_creatureButtons.Clear();
+
+		// 生存中リスト
+		foreach (var kv in _creatureMeta)
+		{
+			RigidBody3D c = kv.Key;
+			CreatureMeta meta = kv.Value;
+			string label = (meta.Alive ? "生存: " : "死亡: ") + meta.DisplayName;
+			if (meta.Traits.Count > 0)
 			{
-				RigidBody3D c = kv.Key;
-				CreatureMeta meta = kv.Value;
-				string label = (meta.Alive ? "生存: " : "死亡: ") + c.Name;
-				if (meta.Traits.Count > 0)
-				{
-					label += " [" + string.Join(",", meta.Traits) + "]";
-				}
-				Button b = new Button();
-				b.Text = label;
-				b.Disabled = !meta.Alive;
-				// クロージャで捕まえる
-				RigidBody3D captured = c;
-				b.Pressed += () => { if (captured != null) SelectCreature(captured); };
-				if (meta.Alive) _aliveList.AddChild(b); else _deadList.AddChild(b);
-				_creatureButtons[c] = b;
+				label += " [" + string.Join(",", meta.Traits) + "]";
 			}
+			Button b = new Button();
+			b.Text = label;
+			b.Disabled = !meta.Alive;
+			RigidBody3D captured = c;
+			b.Pressed += () => { if (captured != null) SelectCreature(captured); };
+			if (meta.Alive) _aliveList.AddChild(b); else _deadList.AddChild(b);
+			_creatureButtons[c] = b;
 		}
+	}
 
 	private void ClearContainerChildren(Control container)
 	{
@@ -256,6 +267,80 @@ public partial class Main : Node3D
 		}
 	}
 
+	// --- ホバー検出とハイライト ---
+	private void UpdateHoverFromMouse()
+	{
+		if (_camera == null) return;
+		Vector2 mpos = GetViewport().GetMousePosition();
+		Vector3 rayOrigin = _camera.ProjectRayOrigin(mpos);
+		Vector3 rayDir = _camera.ProjectRayNormal(mpos);
+		Vector3 rayTarget = rayOrigin + rayDir * 250.0f;
+		PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(rayOrigin, rayTarget);
+		if (_player != null) query.Exclude = new Array<Rid> { _player.GetRid() };
+		query.CollideWithBodies = true;
+		var result = GetWorld3D().DirectSpaceState.IntersectRay(query);
+		if (result.Count > 0)
+		{
+			object collider = result["collider"];
+			if (collider is RigidBody3D rb && _aliveCreatures.Contains(rb))
+			{
+				if (rb != _hoveredCreature) HighlightCreature(rb);
+				return;
+			}
+		}
+		ClearHighlight();
+	}
+
+	private MeshInstance3D GetCreatureMesh(RigidBody3D creature)
+	{
+		if (creature == null) return null;
+		var mesh = creature.GetNodeOrNull<MeshInstance3D>("MeshInstance3D");
+		if (mesh != null) return mesh;
+		for (int i = 0; i < creature.GetChildCount(); i++)
+		{
+			if (creature.GetChild(i) is MeshInstance3D m) return m;
+		}
+		return null;
+	}
+
+	private void HighlightCreature(RigidBody3D creature)
+	{
+		ClearHighlight();
+		var mesh = GetCreatureMesh(creature);
+		if (mesh == null) return;
+		MeshInstance3D outline = new MeshInstance3D();
+		outline.Mesh = mesh.Mesh;
+		outline.Name = "HoverOutline";
+		outline.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+		outline.Scale = mesh.Scale * 1.14f;
+		outline.Position = Vector3.Up * 0.01f;
+		if (_highlightMaterial == null)
+		{
+			_highlightMaterial = new StandardMaterial3D
+			{
+				ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+				AlbedoColor = new Color(0.1f, 0.95f, 1.0f),
+				EmissionEnabled = true,
+				Emission = new Color(0.1f, 0.95f, 1.0f),
+				EmissionEnergyMultiplier = 2.8f,
+				CullMode = BaseMaterial3D.CullModeEnum.Front
+			};
+		}
+		outline.MaterialOverride = _highlightMaterial;
+		creature.AddChild(outline);
+		_hoveredMesh = outline;
+		_hoveredCreature = creature;
+	}
+
+	private void ClearHighlight()
+	{
+		if (_hoveredMesh != null)
+		{
+			if (IsInstanceValid(_hoveredMesh)) _hoveredMesh.QueueFree();
+			_hoveredMesh = null;
+		}
+		_hoveredCreature = null;
+	}
 	private void SetupPredictionLine()
 	{
 		if (_camera == null)
@@ -366,6 +451,7 @@ public partial class Main : Node3D
 		float gapLength = Mathf.Max(0.02f, PredictionGapLength);
 		float cycleLength = dashLength + gapLength;
 		float phase = Mathf.PosMod((float)Time.GetTicksMsec() * 0.001f * PredictionScrollSpeed, cycleLength);
+		bool addedAnyVertices = false;
 
 		for (float segmentStart = phase; segmentStart < totalLength; segmentStart += cycleLength)
 		{
@@ -374,9 +460,19 @@ public partial class Main : Node3D
 			Vector3 endPoint = localSpawn.Lerp(localHit, segmentEnd / totalLength);
 			_predictionMesh.SurfaceAddVertex(startPoint);
 			_predictionMesh.SurfaceAddVertex(endPoint);
+			addedAnyVertices = true;
 		}
 
-		_predictionMesh.SurfaceEnd();
+		if (addedAnyVertices)
+		{
+			_predictionMesh.SurfaceEnd();
+		}
+		else
+		{
+			_predictionMesh.ClearSurfaces();
+			_predictionDashMultiMesh.InstanceCount = 0;
+			return;
+		}
 
 		float thickDashLength = dashLength;
 		float thickGapLength = gapLength;
@@ -504,45 +600,6 @@ public partial class Main : Node3D
 		}
 	}
 
-	private void SpawnCreature()
-	{
-		if (CreatureScene == null)
-		{
-			GD.PrintErr("エラー：インスペクターで CreatureScene が設定されていません！");
-			return;
-		}
-
-		RigidBody3D creatureInstance = CreatureScene.Instantiate<RigidBody3D>();
-		Vector3 randomOffset = new(
-			(float)GD.RandRange(-SpawnRadius, SpawnRadius),
-			0,
-			(float)GD.RandRange(-SpawnRadius, SpawnRadius)
-		);
-		creatureInstance.GlobalPosition = _spawnPosition + randomOffset;
-
-		// 殺害ペナルティ: 手動殺害回数が増えるほど次世代がタフに
-		float toughness = 1.0f + (_manualKillCount * 0.06f);
-		creatureInstance.Mass *= toughness;
-		creatureInstance.Scale = Vector3.One * Mathf.Clamp(toughness, 1.0f, 2.2f);
-
-		AddChild(creatureInstance);
-		_aliveCreatures.Add(creatureInstance);
-		_killedByPlayer[creatureInstance] = false;
-
-		// --- フェーズ2: メタデータとランダム特性の付与 ---
-		var meta = new CreatureMeta();
-		string[] pool = new string[] { "目がいい", "鼻がきく", "速い", "力が強い" };
-		// ランダムに0~2個の特性を付与
-		int traitCount = (int)GD.RandRange(0, 3);
-		for (int t = 0; t < traitCount; t++)
-		{
-			string pick = pool[(int)GD.RandRange(0, pool.Length)];
-			if (!meta.Traits.Contains(pick)) meta.Traits.Add(pick);
-		}
-		_creatureMeta[creatureInstance] = meta;
-		UpdateCreatureUI();
-	}
-
 	private void ForceCullCurrentGeneration()
 	{
 		if (_aliveCreatures.Count == 0)
@@ -566,5 +623,61 @@ public partial class Main : Node3D
 
 		_aliveCreatures.Clear();
 		GD.Print($"手動殺害ペナルティ累計: {_manualKillCount}");
+	}
+
+	private void SpawnCreature()
+	{
+		if (CreatureScene == null)
+		{
+			GD.PrintErr("エラー：インスペクターで CreatureScene が設定されていません！");
+			return;
+		}
+
+		RigidBody3D creatureInstance = CreatureScene.Instantiate<RigidBody3D>();
+		Vector3 randomOffset = new(
+			(float)GD.RandRange(-SpawnRadius, SpawnRadius),
+			0,
+			(float)GD.RandRange(-SpawnRadius, SpawnRadius)
+		);
+
+		// 殺害ペナルティ: 手動殺害回数が増えるほど次世代がタフに
+		float toughness = 1.0f + (_manualKillCount * 0.06f);
+		creatureInstance.Mass *= toughness;
+		creatureInstance.Scale = Vector3.One * Mathf.Clamp(toughness, 1.0f, 2.2f);
+
+		// --- フェーズ2: メタデータとランダム特性の付与 ---
+		var meta = new CreatureMeta();
+		string[] pool = new string[] { "目がいい", "鼻がきく", "速い", "力が強い" };
+		int traitCount = (int)GD.RandRange(0, 3);
+		for (int t = 0; t < traitCount; t++)
+		{
+			string pick = pool[(int)GD.RandRange(0, pool.Length)];
+			if (!meta.Traits.Contains(pick)) meta.Traits.Add(pick);
+		}
+		meta.DisplayName = GenerateCreatureName(meta.Traits);
+		_creatureMeta[creatureInstance] = meta;
+		creatureInstance.Name = meta.DisplayName;
+
+		AddChild(creatureInstance);
+		creatureInstance.GlobalPosition = _spawnPosition + randomOffset;
+		_aliveCreatures.Add(creatureInstance);
+		_killedByPlayer[creatureInstance] = false;
+		UpdateCreatureUI();
+	}
+
+	private string GenerateCreatureName(List<string> traits)
+	{
+		string[] baseNames = new[] { "モコ", "ピコ", "ルル", "ノノ", "ポポ", "タロ", "ミミ", "キキ" };
+		string[] neutralPrefixes = new[] { "ふわり", "すばしこい", "きらめく", "のんびり", "がっしり", "ささやく" };
+
+		string prefix;
+		if (traits.Contains("目がいい")) prefix = "千里眼の";
+		else if (traits.Contains("鼻がきく")) prefix = "鼻先鋭い";
+		else if (traits.Contains("速い")) prefix = "疾風の";
+		else if (traits.Contains("力が強い")) prefix = "怪力の";
+		else prefix = neutralPrefixes[(int)GD.RandRange(0, neutralPrefixes.Length)];
+
+		string baseName = baseNames[(int)GD.RandRange(0, baseNames.Length)];
+		return prefix + baseName;
 	}
 }

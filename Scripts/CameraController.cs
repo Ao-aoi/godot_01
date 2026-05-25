@@ -73,7 +73,8 @@ public partial class CameraController : Camera3D
 			}
 		}
 
-		if (Input.MouseMode == Input.MouseModeEnum.Captured && !_isTracking && @event is InputEventMouseMotion mouseMotion)
+		// マウスによる視点移動
+		if (Input.MouseMode == Input.MouseModeEnum.Captured && !_isTracking && @event is InputEventMouseMotion mouseMotion && !Input.IsMouseButtonPressed(MouseButton.Left))
 		{
 			_rotY -= mouseMotion.Relative.X * MouseSensitivity;
 			_rotX -= mouseMotion.Relative.Y * MouseSensitivity;
